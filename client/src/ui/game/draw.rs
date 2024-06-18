@@ -1,5 +1,4 @@
 use bevy::{
-    color::palettes::css::WHITE,
     prelude::*,
     render::{
         render_resource::{
@@ -66,7 +65,6 @@ pub fn setup(
         ..default()
     };
     image.resize(size);
-    image.data.fill(255);
     let image_handle = images.add(image);
     egui_user_textures.add_image(image_handle.clone_weak());
     commands.spawn((
