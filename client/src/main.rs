@@ -4,9 +4,7 @@ mod ui;
 
 use std::{thread::sleep, time::Duration};
 
-use bevy::{
-    dev_tools::states::log_transitions, gizmos::gizmos, prelude::*, render::view::RenderLayers,
-};
+use bevy::{dev_tools::states::log_transitions, prelude::*};
 use bevy_egui::EguiPlugin;
 use bevy_quinnet::client::{QuinnetClient, QuinnetClientPlugin};
 use common::protocol::ClientMessage;
@@ -31,15 +29,6 @@ fn main() {
     app.add_sub_state::<MenuState>();
     app.add_sub_state::<GameState>();
     app.init_resource::<ConnectionData>();
-    app.insert_gizmo_config(
-        DefaultGizmoConfigGroup,
-        GizmoConfig {
-            render_layers: RenderLayers::layer(1),
-            line_width: 10.0,
-            line_joints: GizmoLineJoint::Round(32),
-            ..default()
-        },
-    );
 
     // Debug
     app.add_systems(

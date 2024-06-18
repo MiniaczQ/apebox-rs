@@ -17,25 +17,6 @@ pub fn stages_short() -> Vec<GameStage> {
     ]
 }
 
-pub fn stages_long() -> Vec<GameStage> {
-    vec![
-        GameStage::Vote { duration: 20 },
-        GameStage::Prompt {
-            prompts_per_player: 2,
-            duration: 60,
-        },
-        GameStage::Draw { duration: 180 },
-        GameStage::Vote { duration: 20 },
-        GameStage::Combine { duration: 60 },
-        GameStage::Prompt {
-            prompts_per_player: 3,
-            duration: 60,
-        },
-        GameStage::Draw { duration: 180 },
-        GameStage::Draw { duration: 180 },
-    ]
-}
-
 /// A single stage of the game.
 #[derive(Resource, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GameStage {
