@@ -1,28 +1,33 @@
 use bevy::prelude::*;
 use bevy_quinnet::server::{ConnectionEvent, ConnectionLostEvent, QuinnetServer};
+use common::game::Indexer;
 
-use crate::{
-    game::{stages_short, GameData},
-    networking, Users,
-};
+use crate::{game::GameConfig, networking, Users};
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum ServerState {
-    /// No listener and active connections.
     #[default]
     Offline,
-    /// Listening for connections.
     Running,
 }
 
 #[derive(SubStates, Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[source(ServerState = ServerState::Running)]
-pub enum GameState {
-    /// Waiting for users.
+pub enum RoomState {
     #[default]
-    Lobby,
-    /// Playing a single round.
-    Playing,
+    Waiting,
+    Running,
+}
+
+#[derive(SubStates, Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[source(RoomState = RoomState::Running)]
+pub enum GameState {
+    #[default]
+    Init,
+    Draw,
+    Prompt,
+    Combine,
+    Vote,
 }
 
 pub fn setup_server_offline(mut next: ResMut<NextState<ServerState>>) {
@@ -48,11 +53,13 @@ pub fn teardown_server_online(mut commands: Commands, mut server: ResMut<Quinnet
     info!("Server offline!");
 }
 
-pub fn setup_game_playing(mut commands: Commands, mut users: ResMut<Users>) {
+pub fn setup_room_running(mut commands: Commands, mut users: ResMut<Users>) {
     users.set_playing();
-    commands.insert_resource(GameData::from_stages(stages_short()));
+    commands.insert_resource(GameConfig::short());
+    commands.init_resource::<Indexer>();
 }
 
-pub fn teardown_game_playing(mut commands: Commands) {
-    commands.remove_resource::<GameData>();
+pub fn teardown_room_running(mut commands: Commands) {
+    commands.remove_resource::<GameConfig>();
+    commands.remove_resource::<Indexer>();
 }

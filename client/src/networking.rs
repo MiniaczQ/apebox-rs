@@ -10,83 +10,60 @@ use bevy_quinnet::{
     },
     shared::channels::ChannelsConfiguration,
 };
-use common::{
-    game::{Drawing, Prompt, UnsignedCombination},
-    protocol::ServerMessage,
-};
+use common::protocol::ServerMsgRoot;
 
 use crate::{
     states::{ClientState, GameState, MenuState},
+    ui::game::{combine::CombineData, draw::DrawData, prompt::PromptData, vote::VoteData},
     ConnectionData,
 };
 
-#[derive(Resource)]
-pub struct DrawData {
-    pub duration: u16,
-}
-
-#[derive(Resource)]
-pub struct PromptData {
-    pub duration: u16,
-}
-
-#[derive(Resource)]
-pub struct CombineData {
-    pub duration: u16,
-    pub drawings: Vec<Drawing>,
-    pub prompts: Vec<Prompt>,
-}
-
-#[derive(Resource)]
-pub struct VoteData {
-    pub duration: u16,
-    pub drawing1: UnsignedCombination,
-    pub drawing2: UnsignedCombination,
-}
-
 pub fn handle_server_messages(
-    mut commands: Commands,
     mut client: ResMut<QuinnetClient>,
     mut next: ResMut<NextState<GameState>>,
+    mut draw_data: EventWriter<DrawData>,
+    mut prompt_data: EventWriter<PromptData>,
+    mut combine_data: EventWriter<CombineData>,
+    mut vote_data: EventWriter<VoteData>,
 ) {
     let Some(connection) = client.get_connection_mut() else {
         return;
     };
-    while let Some((_, message)) = connection.try_receive_message::<ServerMessage>() {
+    while let Some((_, message)) = connection.try_receive_message::<ServerMsgRoot>() {
         match message {
-            ServerMessage::Draw { duration } => {
+            ServerMsgRoot::Draw { duration } => {
                 next.set(GameState::Draw);
-                commands.insert_resource(DrawData { duration })
+                draw_data.send(DrawData { duration });
             }
-            ServerMessage::Prompt { duration } => {
+            ServerMsgRoot::Prompt { duration } => {
                 next.set(GameState::Prompt);
-                commands.insert_resource(PromptData { duration })
+                prompt_data.send(PromptData { duration });
             }
-            ServerMessage::Combine {
+            ServerMsgRoot::Combine {
                 duration,
                 drawings,
                 prompts,
             } => {
                 next.set(GameState::Combine);
-                commands.insert_resource(CombineData {
+                combine_data.send(CombineData {
                     duration,
                     drawings,
                     prompts,
-                })
+                });
             }
-            ServerMessage::Vote {
+            ServerMsgRoot::Vote {
                 duration,
-                drawing1,
-                drawing2,
+                combination1,
+                combination2,
             } => {
                 next.set(GameState::Vote);
-                commands.insert_resource(VoteData {
+                vote_data.send(VoteData {
                     duration,
-                    drawing1,
-                    drawing2,
-                })
+                    combination1,
+                    combination2,
+                });
             }
-            ServerMessage::Wait { message } => next.set(GameState::Wait),
+            ServerMsgRoot::Wait => next.set(GameState::Wait),
         }
     }
 }

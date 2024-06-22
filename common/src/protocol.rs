@@ -1,38 +1,67 @@
+use std::time::Duration;
+
+use bevy::prelude::Event;
+use bevy_quinnet::shared::{channels::ChannelId, ClientId};
 use serde::{Deserialize, Serialize};
 
-use crate::game::{Drawing, Prompt, SignedCombination, UnsignedCombination};
+use crate::game::{Combination, Drawing, Prompt, Vote};
 
-// Messages from clients.
+#[derive(Event)]
+pub struct NetMsg<T> {
+    pub client: ClientId,
+    pub channel: ChannelId,
+    pub data: T,
+}
+
+impl<T> NetMsg<T> {
+    pub fn new(client: ClientId, channel: ChannelId, data: T) -> Self {
+        Self {
+            client,
+            channel,
+            data,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ClientMessage {
-    Join { name: String },
+pub enum ClientMsgRoot {
+    Connect { name: String },
+    Comm(ClientMsgComm),
     Disconnect,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientMsgComm {
     SubmitDrawing(Drawing),
     SubmitPrompt(Prompt),
-    SubmitCombination(SignedCombination),
-    SubmitVote(bool),
+    SubmitCombination(Combination),
+    SubmitVote(Vote),
+}
+
+impl ClientMsgComm {
+    pub fn root(self) -> ClientMsgRoot {
+        ClientMsgRoot::Comm(self)
+    }
 }
 
 // Messages from the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ServerMessage {
+pub enum ServerMsgRoot {
     Draw {
-        duration: u16,
+        duration: Duration,
     },
     Prompt {
-        duration: u16,
+        duration: Duration,
     },
     Combine {
-        duration: u16,
+        duration: Duration,
         drawings: Vec<Drawing>,
         prompts: Vec<Prompt>,
     },
     Vote {
-        duration: u16,
-        drawing1: UnsignedCombination,
-        drawing2: UnsignedCombination,
+        duration: Duration,
+        combination1: (Drawing, Prompt),
+        combination2: (Drawing, Prompt),
     },
-    Wait {
-        message: String,
-    },
+    Wait,
 }

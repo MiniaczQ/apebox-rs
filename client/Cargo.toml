@@ -10,3 +10,4 @@ bevy = { version = "0.14.0-rc.3", features = ["bevy_dev_tools"] }
 bevy_egui = { git = "https://github.com/MiniaczQ/bevy_egui", branch = "bevy-0.14-rc3" }
 egui = "0.27"
 rand = "0.8.5"
+crossbeam-channel = "0.5.13"

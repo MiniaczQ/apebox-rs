@@ -1,7 +1,17 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
+use common::game::{Drawing, Prompt};
 
-use crate::{networking::VoteData, ui::widgets::root_element};
+use crate::ui::widgets::root_element;
+
+#[derive(Event)]
+pub struct VoteData {
+    pub duration: Duration,
+    pub combination1: (Drawing, Prompt),
+    pub combination2: (Drawing, Prompt),
+}
 
 pub fn update(mut ctx: Query<&mut EguiContext>) {
     let mut ctx = ctx.single_mut();
@@ -12,6 +22,4 @@ pub fn update(mut ctx: Query<&mut EguiContext>) {
     });
 }
 
-pub fn teardown(mut commands: Commands) {
-    commands.remove_resource::<VoteData>();
-}
+pub fn teardown(mut commands: Commands) {}

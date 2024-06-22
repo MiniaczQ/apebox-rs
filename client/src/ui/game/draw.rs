@@ -1,16 +1,25 @@
+use std::time::Duration;
+
 use bevy::{
     prelude::*,
     render::{
+        render_asset::RenderAssets,
         render_resource::{
-            Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+            CommandEncoderDescriptor, Extent3d, Maintain, MapMode, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureUsages,
         },
+        renderer::{RenderDevice, RenderQueue},
+        texture::GpuImage,
         view::RenderLayers,
     },
 };
 use bevy_egui::{EguiContext, EguiUserTextures};
+use bevy_quinnet::client::QuinnetClient;
+use common::{game::Drawing, protocol::ClientMsgComm};
+use crossbeam_channel::{Receiver, Sender};
 use egui::Stroke;
 
-use crate::{networking::DrawData, states::GameState, ui::widgets::root_element};
+use crate::{states::GameState, ui::widgets::root_element};
 
 const BRUSH_SIZES: [f32; 5] = [3.0, 5.0, 13.0, 21.0, 43.0];
 const BRUSH_COLORS: [egui::Color32; 10] = [
@@ -30,8 +39,14 @@ const IMG_SIZE: f32 = 2.0 * IMG_HALF_SIZE;
 const IMG_PADDING_HALF_SIZE: f32 = 8.0;
 const IMG_PADDING: f32 = 2.0 * IMG_PADDING_HALF_SIZE;
 
+#[derive(Event)]
+pub struct DrawData {
+    pub duration: Duration,
+}
+
 #[derive(Resource)]
 pub struct DrawContext {
+    pub duration: Duration,
     pub image_handle: Handle<Image>,
     pub last_pos: Option<Vec2>,
     pub brush_size: f32,
@@ -43,7 +58,9 @@ pub fn setup(
     mut images: ResMut<Assets<Image>>,
     mut egui_user_textures: ResMut<EguiUserTextures>,
     mut resize: EventWriter<UpdateBrush>,
+    mut data: ResMut<Events<DrawData>>,
 ) {
+    let data = data.drain().last().unwrap();
     let size = Extent3d {
         width: 512,
         height: 512,
@@ -80,6 +97,7 @@ pub fn setup(
         StateScoped(GameState::Draw),
     ));
     commands.insert_resource(DrawContext {
+        duration: data.duration,
         image_handle,
         last_pos: None,
         brush_size: BRUSH_SIZES[2],
@@ -90,7 +108,6 @@ pub fn setup(
 
 pub fn teardown(mut commands: Commands) {
     commands.remove_resource::<DrawContext>();
-    commands.remove_resource::<DrawData>();
 }
 
 pub fn update(
@@ -131,15 +148,27 @@ pub fn update(
             show_canvas(ui, &images, &mut draw_ctx, window, gizmos);
         });
 
-        show_brushes(ui, draw_ctx, update_brush);
+        show_brushes(ui, &mut draw_ctx, update_brush);
 
-        _ = ui.button("Submit");
+        let submit = ui.button("Submit").clicked();
+        if submit {
+            // TODO: request image from GPU
+        }
     });
+}
+
+pub fn send_image(mut client: ResMut<QuinnetClient>) {
+    let data = vec![];
+
+    client
+        .connection_mut()
+        .send_message(ClientMsgComm::SubmitDrawing(Drawing { data }).root())
+        .ok();
 }
 
 fn show_brushes(
     ui: &mut egui::Ui,
-    draw_ctx: ResMut<DrawContext>,
+    draw_ctx: &mut DrawContext,
     mut update_brush: EventWriter<UpdateBrush>,
 ) {
     egui::Grid::new("brush-sizes")
@@ -290,4 +319,61 @@ impl Rescaler {
             normalized_position.1 * self.destination_size.y + self.destination_min.y,
         )
     }
+}
+
+#[derive(Resource)]
+pub struct MainWorldComm {
+    pub receiver: Receiver<Vec<u32>>,
+    pub sender: Sender<Handle<Image>>,
+}
+
+#[derive(Resource)]
+pub struct RenderWorldComm {
+    pub sender: Sender<Vec<u32>>,
+    pub receiver: Receiver<Handle<Image>>,
+}
+
+fn map_and_read_buffer(
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    assets: Res<RenderAssets<GpuImage>>,
+    comm: Res<RenderWorldComm>,
+) {
+    let Some(handle) = comm.receiver.try_recv().ok() else {
+        return;
+    };
+
+    let image = assets.get(&handle).expect("Missing asset");
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+    encoder.copy_texture_to_texture(
+        image.texture.as_image_copy(),
+        destination,
+        Extent3d {
+            width: image.size.x,
+            height: image.size.y,
+            ..default()
+        },
+    );
+
+    let (s, r) = crossbeam_channel::unbounded::<()>();
+
+    buffer_slice.map_async(MapMode::Read, move |r| match r {
+        Ok(_) => s.send(()).expect("Failed to send map update"),
+        Err(err) => panic!("Failed to map buffer {err}"),
+    });
+    device.poll(Maintain::wait()).panic_on_timeout();
+    r.recv().expect("Failed to receive the map_async message");
+
+    {
+        let buffer_view = buffer_slice.get_mapped_range();
+        let data = buffer_view
+            .chunks(std::mem::size_of::<u32>())
+            .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
+            .collect::<Vec<u32>>();
+        comm.sender
+            .send(data)
+            .expect("Failed to send data to main world");
+    }
+
+    buffers.cpu_buffer.unmap();
 }

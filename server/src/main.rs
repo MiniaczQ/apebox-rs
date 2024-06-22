@@ -1,68 +1,146 @@
 mod game;
 mod networking;
-mod state;
+mod states;
 
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 use bevy::{
     dev_tools::states::log_transitions, ecs::prelude::Resource, log::LogPlugin,
-    state::app::StatesPlugin,
+    state::app::StatesPlugin, utils::hashbrown::HashSet,
 };
 use bevy::{prelude::*, utils::HashMap};
 use bevy_quinnet::{
     server::{QuinnetServer, QuinnetServerPlugin},
     shared::ClientId,
 };
-use common::protocol::ServerMessage;
-use game::{GameData, GameStage};
-use state::{GameState, ServerState};
+use common::{
+    app::AppExt,
+    game::{Combination, Combined, Drawing, Index, Indexer, Prompt, Vote},
+    protocol::{ClientMsgComm, ClientMsgRoot, NetMsg, ServerMsgRoot},
+    transitions::IdentityTransitionsPlugin,
+};
+use game::{CombineConfig, DrawConfig, GameConfig, PromptConfig, StateData, VoteConfig};
+use networking::Submission;
+use rand::prelude::SliceRandom;
+use states::{GameState, RoomState, ServerState};
 
 fn main() {
     let mut app = App::new();
     app.init_state::<ServerState>();
+    app.add_sub_state::<RoomState>();
     app.add_sub_state::<GameState>();
     app.add_plugins((
         MinimalPlugins,
         LogPlugin::default(),
         StatesPlugin,
         QuinnetServerPlugin::default(),
+        IdentityTransitionsPlugin::<GameState>::default(),
     ));
     app.init_resource::<Users>();
+    app.configure_sets(
+        Update,
+        (
+            GameSystemOdering::Networking,
+            GameSystemOdering::StateLogic,
+            GameSystemOdering::ChangeState,
+        )
+            .chain(),
+    );
 
     // Debug
     app.add_systems(
         Update,
-        (log_transitions::<ServerState>, log_transitions::<GameState>).chain(),
+        (
+            log_transitions::<ServerState>,
+            log_transitions::<RoomState>,
+            log_transitions::<GameState>,
+        )
+            .chain(),
     );
 
     // ServerState::Offline
-    app.add_systems(OnEnter(ServerState::Offline), state::setup_server_offline);
+    app.add_systems(OnEnter(ServerState::Offline), states::setup_server_offline);
 
     // ServerState::Running
-    app.add_systems(OnEnter(ServerState::Running), state::setup_server_online);
-    app.add_systems(OnExit(ServerState::Running), state::teardown_server_online);
+    app.add_systems(OnEnter(ServerState::Running), states::setup_server_online);
+    app.add_systems(OnExit(ServerState::Running), states::teardown_server_online);
+    app.add_event::<NetMsg<ClientMsgRoot>>();
+    app.add_event::<NetMsg<ClientMsgComm>>();
+    app.add_event::<ProgressGame>();
     app.add_systems(
         PreUpdate,
         (
             networking::handle_server_events,
-            networking::handle_client_messages,
+            networking::receive_messages,
+            networking::handle_root,
+            networking::handle_comm,
         )
             .chain()
+            .in_set(GameSystemOdering::Networking)
             .run_if(in_state(ServerState::Running)),
     );
 
-    // GameState::Lobby
-    app.add_systems(Update, start_lobby.run_if(in_state(GameState::Lobby)));
-
-    // GameState::Playing
-    app.add_systems(OnEnter(GameState::Playing), state::setup_game_playing);
-    app.add_systems(OnExit(GameState::Playing), state::teardown_game_playing);
+    // RoomState::Waiting
     app.add_systems(
         Update,
-        (progress_game, everyone_left).run_if(in_state(GameState::Playing)),
+        start_lobby
+            .in_set(GameSystemOdering::ChangeState)
+            .run_if(in_state(RoomState::Waiting)),
+    );
+
+    // RoomState::Running
+    app.add_event::<ProgressGame>();
+    app.add_statebound(
+        RoomState::Running,
+        states::setup_room_running,
+        states::teardown_room_running,
+        (progress_game, stop_lobby).in_set(GameSystemOdering::ChangeState),
+    );
+
+    // Draw
+    app.add_event::<Submission<Drawing>>();
+    app.add_reentrant_statebound(
+        GameState::Draw,
+        setup_draw,
+        teardown_draw,
+        update_draw.in_set(GameSystemOdering::StateLogic),
+    );
+
+    // Prompt
+    app.add_event::<Submission<Prompt>>();
+    app.add_reentrant_statebound(
+        GameState::Prompt,
+        setup_prompt,
+        teardown_prompt,
+        update_prompt.in_set(GameSystemOdering::StateLogic),
+    );
+
+    // Combine
+    app.add_event::<Submission<Combination>>();
+    app.add_reentrant_statebound(
+        GameState::Combine,
+        setup_combine,
+        teardown_combine,
+        update_combine.in_set(GameSystemOdering::StateLogic),
+    );
+
+    // Vote
+    app.add_event::<Submission<Vote>>();
+    app.add_reentrant_statebound(
+        GameState::Vote,
+        setup_vote,
+        teardown_vote,
+        update_vote.in_set(GameSystemOdering::StateLogic),
     );
 
     app.run();
+}
+
+#[derive(SystemSet, Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
+pub enum GameSystemOdering {
+    Networking,
+    StateLogic,
+    ChangeState,
 }
 
 /// Users and information about them.
@@ -105,6 +183,10 @@ impl Users {
         self.registered.remove(id)
     }
 
+    fn iter_active(&self) -> impl Iterator<Item = (&u64, &UserData)> {
+        self.registered.iter().filter(|(_, u)| u.playing)
+    }
+
     /// Take all pending users who didn't register a name for too long.
     fn drain_pending_too_long(&mut self, max_pending: Duration, now: Duration) -> Vec<ClientId> {
         let mut pending_too_long = vec![];
@@ -129,54 +211,373 @@ struct UserData {
     playing: bool,
 }
 
+#[derive(Event)]
+pub struct ProgressGame;
+
 fn progress_game(
-    users: ResMut<Users>,
-    mut gamedata: ResMut<GameData>,
-    time: Res<Time>,
-    mut server: ResMut<QuinnetServer>,
-    mut next: ResMut<NextState<GameState>>,
+    mut progress: ResMut<Events<ProgressGame>>,
+    mut commands: Commands,
+    mut room_next: ResMut<NextState<RoomState>>,
+    mut game_next: ResMut<NextState<GameState>>,
+    mut game_data: ResMut<GameConfig>,
 ) {
-    let now = time.elapsed();
-    if !gamedata.try_progress(now) {
+    if progress.drain().last().is_none() {
         return;
     }
 
-    if gamedata.has_ended() {
-        next.set(GameState::Lobby);
+    let Some(next_state) = game_data.next_state() else {
+        room_next.set(RoomState::Waiting);
         return;
-    }
-
-    let stage = gamedata.stage.as_ref().unwrap();
-
-    let message = match stage {
-        GameStage::Draw { duration } => ServerMessage::Draw {
-            duration: *duration,
-        },
-        GameStage::Prompt { duration, .. } => ServerMessage::Prompt {
-            duration: *duration,
-        },
-        GameStage::Combine { duration } => ServerMessage::Prompt {
-            duration: *duration,
-        },
-        GameStage::Vote { duration } => ServerMessage::Prompt {
-            duration: *duration,
-        },
     };
-    let endpoint = server.endpoint_mut();
-    for (id, _) in users.registered.iter().filter(|(_, u)| u.playing) {
-        endpoint.send_message(*id, &message).unwrap();
-    }
+
+    match next_state {
+        StateData::Draw(config) => {
+            game_next.set(GameState::Draw);
+            commands.insert_resource(config);
+        }
+        StateData::Prompt(config) => {
+            game_next.set(GameState::Prompt);
+            commands.insert_resource(config);
+        }
+        StateData::Combine(config) => {
+            game_next.set(GameState::Combine);
+            commands.insert_resource(config);
+        }
+        StateData::Vote(config) => {
+            game_next.set(GameState::Vote);
+            commands.insert_resource(config);
+        }
+    };
 }
 
-fn start_lobby(users: Res<Users>, mut next: ResMut<NextState<GameState>>) {
+fn start_lobby(
+    users: Res<Users>,
+    mut room_next: ResMut<NextState<RoomState>>,
+    mut progress: EventWriter<ProgressGame>,
+) {
     // TODO: Wait for host start instead
-    if users.registered.len() >= 1 {
-        next.set(GameState::Playing);
+    if users.registered.len() >= 2 {
+        room_next.set(RoomState::Running);
+        progress.send(ProgressGame);
     }
 }
 
-fn everyone_left(users: Res<Users>, mut next: ResMut<NextState<GameState>>) {
+fn stop_lobby(users: Res<Users>, mut room_next: ResMut<NextState<RoomState>>) {
     if users.registered.len() < 1 {
-        next.set(GameState::Lobby);
+        room_next.set(RoomState::Waiting);
     }
+}
+
+#[derive(Resource, Debug)]
+pub struct DrawCtx {
+    started: Duration,
+    submited: HashSet<ClientId>,
+}
+
+fn setup_draw(
+    mut commands: Commands,
+    mut server: ResMut<QuinnetServer>,
+    time: Res<Time>,
+    users: Res<Users>,
+    config: Res<DrawConfig>,
+) {
+    info!("Setup draw {:?}", time.elapsed());
+    commands.insert_resource(DrawCtx {
+        started: time.elapsed(),
+        submited: HashSet::new(),
+    });
+    let endpoint = server.endpoint_mut();
+    let message = ServerMsgRoot::Draw {
+        duration: config.duration,
+    };
+    for (id, _) in users.iter_active() {
+        endpoint.send_message(*id, &message).ok();
+    }
+}
+
+fn update_draw(
+    mut commands: Commands,
+    mut submissions: ResMut<Events<Submission<Drawing>>>,
+    mut progress: EventWriter<ProgressGame>,
+    mut indexer: ResMut<Indexer>,
+    mut context: ResMut<DrawCtx>,
+    game_config: Res<GameConfig>,
+    config: Res<DrawConfig>,
+    time: Res<Time>,
+) {
+    for submission in submissions.drain() {
+        if context.submited.contains(&submission.author.id) {
+            warn!("User submitting drawing multiple times!");
+            continue;
+        }
+        info!("{:?}", submission);
+        context.submited.insert(submission.author.id);
+        commands.spawn((
+            StateScoped(RoomState::Running),
+            submission.author,
+            submission.data,
+            indexer.next(),
+        ));
+    }
+    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+        info!("{:?} {:?}", context.started, time.elapsed());
+        progress.send(ProgressGame);
+    }
+}
+
+fn teardown_draw(mut commands: Commands) {
+    commands.remove_resource::<DrawConfig>();
+    commands.remove_resource::<DrawCtx>();
+}
+
+#[derive(Resource, Debug)]
+pub struct PromptCtx {
+    started: Duration,
+    submited: usize,
+}
+
+fn setup_prompt(
+    mut commands: Commands,
+    mut server: ResMut<QuinnetServer>,
+    time: Res<Time>,
+    users: Res<Users>,
+    config: Res<PromptConfig>,
+) {
+    info!("Setup prompt");
+    commands.insert_resource(PromptCtx {
+        started: time.elapsed(),
+        submited: 0,
+    });
+    let endpoint = server.endpoint_mut();
+    let message = ServerMsgRoot::Prompt {
+        duration: config.duration,
+    };
+    for (id, _) in users.iter_active() {
+        endpoint.send_message(*id, &message).ok();
+    }
+}
+
+fn update_prompt(
+    mut commands: Commands,
+    mut submissions: ResMut<Events<Submission<Prompt>>>,
+    mut progress: EventWriter<ProgressGame>,
+    mut indexer: ResMut<Indexer>,
+    mut context: ResMut<PromptCtx>,
+    game_config: Res<GameConfig>,
+    config: Res<PromptConfig>,
+    time: Res<Time>,
+    users: Res<Users>,
+) {
+    let user_count = users.iter_active().count();
+    let max_submissions = user_count * config.prompts_per_player;
+    for submission in submissions.drain() {
+        info!("{:?}", submission);
+        context.submited += 1;
+        commands.spawn((
+            StateScoped(RoomState::Running),
+            submission.author,
+            submission.data,
+            indexer.next(),
+        ));
+        if max_submissions <= context.submited {
+            progress.send(ProgressGame);
+            return;
+        }
+    }
+    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+        progress.send(ProgressGame);
+    }
+}
+
+fn teardown_prompt(mut commands: Commands) {
+    commands.remove_resource::<PromptConfig>();
+    commands.remove_resource::<PromptCtx>();
+}
+
+#[derive(Resource, Debug)]
+pub struct CombineCtx {
+    started: Duration,
+    submited: HashSet<ClientId>,
+}
+
+fn setup_combine(
+    mut commands: Commands,
+    mut server: ResMut<QuinnetServer>,
+    time: Res<Time>,
+    users: Res<Users>,
+    config: Res<CombineConfig>,
+    drawings: Query<(Entity, &Drawing), Without<Prompt>>,
+    prompts: Query<(Entity, &Prompt), Without<Drawing>>,
+) {
+    info!("Setup combine");
+    commands.insert_resource(CombineCtx {
+        started: time.elapsed(),
+        submited: HashSet::new(),
+    });
+
+    let mut rng = rand::thread_rng();
+    let mut drawing_ids = drawings.iter().map(|e| e.0).collect::<Vec<_>>();
+    drawing_ids.shuffle(&mut rng);
+    let mut prompt_ids = prompts.iter().map(|e| e.0).collect::<Vec<_>>();
+    prompt_ids.shuffle(&mut rng);
+    let mut user_ids = users.iter_active().map(|u| *u.0).collect::<Vec<_>>();
+    user_ids.shuffle(&mut rng);
+
+    let drawing_count = drawing_ids.len();
+    let prompt_count = prompt_ids.len();
+    let user_count = user_ids.len();
+
+    if drawing_count < user_count || prompt_count < user_count {
+        todo!("Handle not enough content!");
+    }
+
+    let min_drawings_per_user = drawing_count / user_count;
+    let extra_drawing_for_first_n_users = drawing_count % user_count;
+    let min_prompts_per_user = prompt_count / user_count;
+    let extra_prompt_for_first_n_users = prompt_count % user_count;
+
+    fn count_for_idx(min: usize, extra: usize, idx: usize) -> usize {
+        idx * min + (idx < extra) as usize
+    }
+
+    fn range_for_idx(min: usize, extra: usize, idx: usize) -> Range<usize> {
+        if idx == 0 {
+            0..count_for_idx(min, extra, idx + 1)
+        } else {
+            count_for_idx(min, extra, idx)..count_for_idx(min, extra, idx + 1)
+        }
+    }
+
+    let endpoint = server.endpoint_mut();
+    for (idx, id) in user_ids.into_iter().enumerate() {
+        let drawing_ids = &drawing_ids
+            [range_for_idx(min_drawings_per_user, extra_drawing_for_first_n_users, idx)];
+        let drawings = drawings
+            .iter_many(drawing_ids)
+            .map(|d| d.1.clone())
+            .collect::<Vec<_>>();
+
+        let prompt_ids =
+            &prompt_ids[range_for_idx(min_prompts_per_user, extra_prompt_for_first_n_users, idx)];
+        let prompts = prompts
+            .iter_many(prompt_ids)
+            .map(|d| d.1.clone())
+            .collect::<Vec<_>>();
+
+        info!(id = ?id, d = drawing_ids.len(), p = prompt_ids.len(), "Combinations sent to user");
+
+        let message = ServerMsgRoot::Combine {
+            duration: config.duration,
+            drawings,
+            prompts,
+        };
+
+        endpoint.send_message(id, &message).ok();
+    }
+}
+
+fn update_combine(
+    mut commands: Commands,
+    mut submissions: ResMut<Events<Submission<Combination>>>,
+    mut progress: EventWriter<ProgressGame>,
+    mut indexer: ResMut<Indexer>,
+    mut context: ResMut<CombineCtx>,
+    game_config: Res<GameConfig>,
+    config: Res<CombineConfig>,
+    time: Res<Time>,
+    drawings: Query<(Entity, &Index), (With<Drawing>, Without<Prompt>, Without<Combined>)>,
+    prompts: Query<(Entity, &Index), (With<Prompt>, Without<Drawing>, Without<Combined>)>,
+) {
+    for submission in submissions.drain() {
+        if context.submited.contains(&submission.author.id) {
+            warn!("User submitting combination multiple times!");
+            continue;
+        }
+
+        let drawing_idx = submission.data.drawing;
+        let drawing = drawings.iter().find(|d| d.1 .0 == drawing_idx);
+        let prompt_idx = submission.data.prompt;
+        let prompt = prompts.iter().find(|d| d.1 .0 == prompt_idx);
+
+        let (drawing, prompt) = match (drawing, prompt) {
+            (Some(drawing), Some(prompt)) => (drawing, prompt),
+            _ => {
+                warn!("Combination submission doesn't target a valid drawing and/or prompt.");
+                continue;
+            }
+        };
+        info!("{:?}", submission);
+
+        context.submited.insert(submission.author.id);
+        commands.spawn((
+            StateScoped(RoomState::Running),
+            submission.author,
+            submission.data,
+            indexer.next(),
+        ));
+        commands.entity(drawing.0).insert(Combined);
+        commands.entity(prompt.0).insert(Combined);
+    }
+    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+        progress.send(ProgressGame);
+    }
+}
+
+fn teardown_combine(mut commands: Commands) {
+    commands.remove_resource::<CombineConfig>();
+    commands.remove_resource::<CombineCtx>();
+}
+
+#[derive(Resource, Debug)]
+pub struct VoteCtx {
+    started: Duration,
+}
+
+fn setup_vote(
+    mut commands: Commands,
+    mut server: ResMut<QuinnetServer>,
+    time: Res<Time>,
+    users: Res<Users>,
+    config: Res<VoteConfig>,
+) {
+    info!("Setup vote");
+    commands.insert_resource(VoteCtx {
+        started: time.elapsed(),
+    });
+    let endpoint = server.endpoint_mut();
+    let message = ServerMsgRoot::Prompt {
+        duration: config.duration,
+    };
+    for (id, _) in users.iter_active() {
+        endpoint.send_message(*id, &message).ok();
+    }
+}
+
+fn update_vote(
+    mut commands: Commands,
+    mut submissions: ResMut<Events<Submission<Vote>>>,
+    mut progress: EventWriter<ProgressGame>,
+    mut indexer: ResMut<Indexer>,
+    context: ResMut<VoteCtx>,
+    game_config: Res<GameConfig>,
+    config: Res<VoteConfig>,
+    time: Res<Time>,
+) {
+    for submission in submissions.drain() {
+        info!("{:?}", submission);
+        commands.spawn((
+            StateScoped(RoomState::Running),
+            submission.author,
+            submission.data,
+            indexer.next(),
+        ));
+    }
+    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+        progress.send(ProgressGame);
+    }
+}
+
+fn teardown_vote(mut commands: Commands) {
+    commands.remove_resource::<VoteConfig>();
+    commands.remove_resource::<VoteCtx>();
 }

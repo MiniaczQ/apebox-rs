@@ -1460,6 +1460,7 @@ dependencies = [
  "bevy_egui",
  "bevy_quinnet",
  "common",
+ "crossbeam-channel",
  "egui",
  "rand",
 ]
