@@ -3,13 +3,10 @@ pub mod menu;
 pub mod widgets;
 
 use bevy::{prelude::*, render::view::RenderLayers};
-use common::{
-    app::AppExt,
-    transitions::{OnReenter, OnReexit},
-};
+use common::app::AppExt;
 use game::{
     combine::CombineData,
-    draw::{DrawData, UpdateBrush},
+    draw::{DrawData, SaveDrawingPlugin, UpdateBrush},
     prompt::PromptData,
     vote::VoteData,
 };
@@ -37,6 +34,7 @@ impl Plugin for ClientUiPlugin {
         // Draw
         app.add_event::<DrawData>();
         app.add_event::<UpdateBrush>();
+        app.add_plugins(SaveDrawingPlugin);
         app.insert_gizmo_config(
             DefaultGizmoConfigGroup,
             GizmoConfig {
@@ -49,7 +47,11 @@ impl Plugin for ClientUiPlugin {
             GameState::Draw,
             game::draw::setup,
             game::draw::teardown,
-            (game::draw::resize_brush, game::draw::update)
+            (
+                game::draw::resize_brush,
+                game::draw::update,
+                game::draw::send_image,
+            )
                 .chain()
                 .in_set(GameSystemOdering::StateLogic),
         );
@@ -80,6 +82,6 @@ impl Plugin for ClientUiPlugin {
                 .in_set(GameSystemOdering::StateLogic)
                 .run_if(in_state(GameState::Vote)),
         );
-        app.add_systems(OnReexit(GameState::Vote), game::vote::teardown);
+        app.add_systems(OnExit(GameState::Vote), game::vote::teardown);
     }
 }

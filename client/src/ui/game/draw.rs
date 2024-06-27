@@ -5,13 +5,16 @@ use bevy::{
     render::{
         render_asset::RenderAssets,
         render_resource::{
-            CommandEncoderDescriptor, Extent3d, Maintain, MapMode, TextureDescriptor,
-            TextureDimension, TextureFormat, TextureUsages,
+            BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
+            ImageDataLayout, MapMode, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureUsages,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::GpuImage,
         view::RenderLayers,
+        Render, RenderApp,
     },
+    tasks::AsyncComputeTaskPool,
 };
 use bevy_egui::{EguiContext, EguiUserTextures};
 use bevy_quinnet::client::QuinnetClient;
@@ -68,7 +71,7 @@ pub fn setup(
     };
     let mut image = Image {
         texture_descriptor: TextureDescriptor {
-            label: None,
+            label: Some("drawing"),
             size,
             dimension: TextureDimension::D2,
             format: TextureFormat::Bgra8UnormSrgb,
@@ -76,6 +79,7 @@ pub fn setup(
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
                 | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
@@ -117,6 +121,7 @@ pub fn update(
     gizmos: Gizmos,
     window: Query<&Window>,
     mut update_brush: EventWriter<UpdateBrush>,
+    comm: ResMut<MainWorldComm>,
 ) {
     let mut ctx = ctx.single_mut();
     let window = window.single();
@@ -152,13 +157,15 @@ pub fn update(
 
         let submit = ui.button("Submit").clicked();
         if submit {
-            // TODO: request image from GPU
+            comm.sender.try_send(draw_ctx.image_handle.clone()).ok();
         }
     });
 }
 
-pub fn send_image(mut client: ResMut<QuinnetClient>) {
-    let data = vec![];
+pub fn send_image(mut client: ResMut<QuinnetClient>, comm: ResMut<MainWorldComm>) {
+    let Some(data) = comm.receiver.try_recv().ok() else {
+        return;
+    };
 
     client
         .connection_mut()
@@ -321,59 +328,102 @@ impl Rescaler {
     }
 }
 
+pub struct SaveDrawingPlugin;
+
+impl Plugin for SaveDrawingPlugin {
+    fn build(&self, app: &mut App) {
+        let (m_s, r_r) = crossbeam_channel::unbounded();
+        let (r_s, m_r) = crossbeam_channel::unbounded();
+
+        app.insert_resource(MainWorldComm {
+            receiver: m_r,
+            sender: m_s,
+        });
+
+        let rapp = app.sub_app_mut(RenderApp);
+        rapp.insert_resource(RenderWorldComm {
+            sender: r_s,
+            receiver: r_r,
+        });
+        rapp.add_systems(Render, save_drawing);
+    }
+}
+
 #[derive(Resource)]
 pub struct MainWorldComm {
-    pub receiver: Receiver<Vec<u32>>,
+    pub receiver: Receiver<Vec<u8>>,
     pub sender: Sender<Handle<Image>>,
 }
 
 #[derive(Resource)]
 pub struct RenderWorldComm {
-    pub sender: Sender<Vec<u32>>,
+    pub sender: Sender<Vec<u8>>,
     pub receiver: Receiver<Handle<Image>>,
 }
 
-fn map_and_read_buffer(
+pub fn save_drawing(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     assets: Res<RenderAssets<GpuImage>>,
     comm: Res<RenderWorldComm>,
 ) {
+    // Wait for request
     let Some(handle) = comm.receiver.try_recv().ok() else {
         return;
     };
 
+    // Prepare destination buffer, hardcoded image size of 512x512 in Bgra8UnormSrgb
     let image = assets.get(&handle).expect("Missing asset");
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-    encoder.copy_texture_to_texture(
+    let buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("drawing-transfer-buffer"),
+        size: 512 * 512 * 4,
+        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    // Request copy
+    encoder.copy_texture_to_buffer(
         image.texture.as_image_copy(),
-        destination,
+        ImageCopyBuffer {
+            buffer: &buffer,
+            layout: ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(512 * 4),
+                rows_per_image: None,
+            },
+        },
         Extent3d {
             width: image.size.x,
             height: image.size.y,
             ..default()
         },
     );
+    queue.submit([encoder.finish()]);
 
-    let (s, r) = crossbeam_channel::unbounded::<()>();
+    // Wait for copy to finish
+    let sender = comm.sender.clone();
+    let finish = async move {
+        let (tx, rx) = async_channel::bounded(1);
+        // Copy data from GPU to CPU
+        let buffer_slice = buffer.slice(..);
+        buffer_slice.map_async(MapMode::Read, move |result| {
+            let err = result.err();
+            if err.is_some() {
+                panic!("{}", err.unwrap().to_string());
+            }
+            tx.try_send(()).unwrap();
+        });
+        rx.recv().await.unwrap();
+        let data = buffer_slice.get_mapped_range();
+        let result = Vec::from(&*data);
+        drop(data);
+        drop(buffer);
+        // Send data to main app
+        let empty = result.iter().filter(|x| **x == 0).count();
+        info!("{}", empty as f32 / (512. * 512. * 4.));
+        sender.send(result).ok();
+    };
 
-    buffer_slice.map_async(MapMode::Read, move |r| match r {
-        Ok(_) => s.send(()).expect("Failed to send map update"),
-        Err(err) => panic!("Failed to map buffer {err}"),
-    });
-    device.poll(Maintain::wait()).panic_on_timeout();
-    r.recv().expect("Failed to receive the map_async message");
-
-    {
-        let buffer_view = buffer_slice.get_mapped_range();
-        let data = buffer_view
-            .chunks(std::mem::size_of::<u32>())
-            .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
-            .collect::<Vec<u32>>();
-        comm.sender
-            .send(data)
-            .expect("Failed to send data to main world");
-    }
-
-    buffers.cpu_buffer.unmap();
+    AsyncComputeTaskPool::get().spawn(finish).detach();
 }

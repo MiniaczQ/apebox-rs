@@ -79,6 +79,7 @@ fn main() {
             .in_set(GameSystemOdering::Networking)
             .run_if(in_state(ServerState::Running)),
     );
+    app.enable_state_scoped_entities::<RoomState>();
 
     // RoomState::Waiting
     app.add_systems(
@@ -256,7 +257,7 @@ fn start_lobby(
     mut progress: EventWriter<ProgressGame>,
 ) {
     // TODO: Wait for host start instead
-    if users.registered.len() >= 2 {
+    if users.registered.len() >= 1 {
         room_next.set(RoomState::Running);
         progress.send(ProgressGame);
     }
@@ -304,6 +305,7 @@ fn update_draw(
     game_config: Res<GameConfig>,
     config: Res<DrawConfig>,
     time: Res<Time>,
+    users: Res<Users>,
 ) {
     for submission in submissions.drain() {
         if context.submited.contains(&submission.author.id) {
@@ -318,6 +320,10 @@ fn update_draw(
             submission.data,
             indexer.next(),
         ));
+        if context.submited.len() >= users.iter_active().count() {
+            progress.send(ProgressGame);
+            return;
+        }
     }
     if context.started + config.duration + game_config.extra_time < time.elapsed() {
         info!("{:?} {:?}", context.started, time.elapsed());

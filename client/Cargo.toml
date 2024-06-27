@@ -11,3 +11,4 @@ bevy_egui = { git = "https://github.com/MiniaczQ/bevy_egui", branch = "bevy-0.14
 egui = "0.27"
 rand = "0.8.5"
 crossbeam-channel = "0.5.13"
+async-channel = "2.3.1"

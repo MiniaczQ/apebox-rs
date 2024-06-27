@@ -1456,6 +1456,7 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "bevy",
  "bevy_egui",
  "bevy_quinnet",
