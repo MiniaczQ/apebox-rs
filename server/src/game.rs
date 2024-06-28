@@ -42,7 +42,7 @@ pub struct GameConfig {
 impl GameConfig {
     pub fn short() -> Self {
         Self {
-            extra_time: Duration::from_secs(10),
+            extra_time: Duration::from_secs(30),
             states: vec![
                 StateData::Vote(VoteConfig {
                     duration: Duration::from_secs(4),

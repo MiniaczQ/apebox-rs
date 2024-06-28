@@ -15,26 +15,28 @@ use bevy_quinnet::{
 };
 use common::{
     app::AppExt,
-    game::{Combination, Combined, Drawing, Index, Indexer, Prompt, Vote},
+    game::{Combination, Combined, Drawing, Index, Indexer, Prompt, Vote, VotedOut},
     protocol::{ClientMsgComm, ClientMsgRoot, NetMsg, ServerMsgRoot},
     transitions::IdentityTransitionsPlugin,
 };
 use game::{CombineConfig, DrawConfig, GameConfig, PromptConfig, StateData, VoteConfig};
 use networking::Submission;
 use rand::prelude::SliceRandom;
-use states::{GameState, RoomState, ServerState};
+use states::{GameState, RoomState, ServerState, VoteState};
 
 fn main() {
     let mut app = App::new();
     app.init_state::<ServerState>();
     app.add_sub_state::<RoomState>();
     app.add_sub_state::<GameState>();
+    app.add_sub_state::<VoteState>();
     app.add_plugins((
         MinimalPlugins,
         LogPlugin::default(),
         StatesPlugin,
         QuinnetServerPlugin::default(),
         IdentityTransitionsPlugin::<GameState>::default(),
+        IdentityTransitionsPlugin::<VoteState>::default(),
     ));
     app.init_resource::<Users>();
     app.configure_sets(
@@ -128,7 +130,7 @@ fn main() {
     // Vote
     app.add_event::<Submission<Vote>>();
     app.add_reentrant_statebound(
-        GameState::Vote,
+        VoteState,
         setup_vote,
         teardown_vote,
         update_vote.in_set(GameSystemOdering::StateLogic),
@@ -257,7 +259,7 @@ fn start_lobby(
     mut progress: EventWriter<ProgressGame>,
 ) {
     // TODO: Wait for host start instead
-    if users.registered.len() >= 1 {
+    if users.registered.len() >= 3 {
         room_next.set(RoomState::Running);
         progress.send(ProgressGame);
     }
@@ -412,8 +414,8 @@ fn setup_combine(
     time: Res<Time>,
     users: Res<Users>,
     config: Res<CombineConfig>,
-    drawings: Query<(Entity, &Drawing), Without<Prompt>>,
-    prompts: Query<(Entity, &Prompt), Without<Drawing>>,
+    drawings: Query<(Entity, &Index, &Drawing), Without<Prompt>>,
+    prompts: Query<(Entity, &Index, &Prompt), Without<Drawing>>,
 ) {
     info!("Setup combine");
     commands.insert_resource(CombineCtx {
@@ -460,14 +462,14 @@ fn setup_combine(
             [range_for_idx(min_drawings_per_user, extra_drawing_for_first_n_users, idx)];
         let drawings = drawings
             .iter_many(drawing_ids)
-            .map(|d| d.1.clone())
+            .map(|d| (*d.1, d.2.clone()))
             .collect::<Vec<_>>();
 
         let prompt_ids =
             &prompt_ids[range_for_idx(min_prompts_per_user, extra_prompt_for_first_n_users, idx)];
         let prompts = prompts
             .iter_many(prompt_ids)
-            .map(|d| d.1.clone())
+            .map(|d| (*d.1, d.2.clone()))
             .collect::<Vec<_>>();
 
         info!(id = ?id, d = drawing_ids.len(), p = prompt_ids.len(), "Combinations sent to user");
@@ -493,6 +495,7 @@ fn update_combine(
     time: Res<Time>,
     drawings: Query<(Entity, &Index), (With<Drawing>, Without<Prompt>, Without<Combined>)>,
     prompts: Query<(Entity, &Index), (With<Prompt>, Without<Drawing>, Without<Combined>)>,
+    users: Res<Users>,
 ) {
     for submission in submissions.drain() {
         if context.submited.contains(&submission.author.id) {
@@ -501,9 +504,9 @@ fn update_combine(
         }
 
         let drawing_idx = submission.data.drawing;
-        let drawing = drawings.iter().find(|d| d.1 .0 == drawing_idx);
+        let drawing = drawings.iter().find(|d| *d.1 == drawing_idx);
         let prompt_idx = submission.data.prompt;
-        let prompt = prompts.iter().find(|d| d.1 .0 == prompt_idx);
+        let prompt = prompts.iter().find(|d| *d.1 == prompt_idx);
 
         let (drawing, prompt) = match (drawing, prompt) {
             (Some(drawing), Some(prompt)) => (drawing, prompt),
@@ -523,6 +526,11 @@ fn update_combine(
         ));
         commands.entity(drawing.0).insert(Combined);
         commands.entity(prompt.0).insert(Combined);
+
+        if context.submited.len() >= users.iter_active().count() {
+            progress.send(ProgressGame);
+            return;
+        }
     }
     if context.started + config.duration + game_config.extra_time < time.elapsed() {
         progress.send(ProgressGame);
@@ -537,6 +545,11 @@ fn teardown_combine(mut commands: Commands) {
 #[derive(Resource, Debug)]
 pub struct VoteCtx {
     started: Duration,
+    submited: HashSet<ClientId>,
+    combination1: (Entity, Index),
+    combination1_votes: usize,
+    combination2: (Entity, Index),
+    combination2_votes: usize,
 }
 
 fn setup_vote(
@@ -545,14 +558,61 @@ fn setup_vote(
     time: Res<Time>,
     users: Res<Users>,
     config: Res<VoteConfig>,
+    combinations: Query<
+        (Entity, &Index, &Combination),
+        (
+            With<Combination>,
+            Without<VotedOut>,
+            Without<Drawing>,
+            Without<Prompt>,
+        ),
+    >,
+    drawings: Query<(&Index, &Drawing), (Without<Combination>, Without<Prompt>)>,
+    prompts: Query<(&Index, &Prompt), (Without<Combination>, Without<Drawing>)>,
 ) {
     info!("Setup vote");
+    let mut rng = rand::thread_rng();
+    let mut combinations = combinations.iter().collect::<Vec<_>>();
+    combinations.shuffle(&mut rng);
+    let combination1 = combinations[0];
+    let combination2 = combinations[1];
     commands.insert_resource(VoteCtx {
         started: time.elapsed(),
+        submited: HashSet::new(),
+        combination1: (combination1.0, *combination1.1),
+        combination2: (combination2.0, *combination2.1),
+        combination1_votes: 0,
+        combination2_votes: 0,
     });
+    let drawing1 = drawings
+        .iter()
+        .find(|d| *d.0 == combination1.2.drawing)
+        .unwrap()
+        .1
+        .clone();
+    let prompt1 = prompts
+        .iter()
+        .find(|d| *d.0 == combination1.2.prompt)
+        .unwrap()
+        .1
+        .clone();
+    let drawing2 = drawings
+        .iter()
+        .find(|d| *d.0 == combination1.2.drawing)
+        .unwrap()
+        .1
+        .clone();
+    let prompt2 = prompts
+        .iter()
+        .find(|d| *d.0 == combination1.2.prompt)
+        .unwrap()
+        .1
+        .clone();
     let endpoint = server.endpoint_mut();
-    let message = ServerMsgRoot::Prompt {
+    let message = ServerMsgRoot::Vote {
         duration: config.duration,
+        combination1: (*combination1.1, drawing1, prompt1),
+        combination2: (*combination2.1, drawing2, prompt2),
     };
     for (id, _) in users.iter_active() {
         endpoint.send_message(*id, &message).ok();
@@ -563,23 +623,47 @@ fn update_vote(
     mut commands: Commands,
     mut submissions: ResMut<Events<Submission<Vote>>>,
     mut progress: EventWriter<ProgressGame>,
-    mut indexer: ResMut<Indexer>,
-    context: ResMut<VoteCtx>,
+    mut next: ResMut<NextState<VoteState>>,
+    mut context: ResMut<VoteCtx>,
     game_config: Res<GameConfig>,
     config: Res<VoteConfig>,
     time: Res<Time>,
+    combinations: Query<(&Index, &Combination), Without<VotedOut>>,
+    users: Res<Users>,
 ) {
+    let combinations_left = combinations.iter().len();
     for submission in submissions.drain() {
+        if context.submited.contains(&submission.author.id) {
+            warn!("User submitting vote multiple times!");
+            continue;
+        }
         info!("{:?}", submission);
-        commands.spawn((
-            StateScoped(RoomState::Running),
-            submission.author,
-            submission.data,
-            indexer.next(),
-        ));
+        context.submited.insert(submission.author.id);
+        if submission.data.combination != context.combination1.1
+            && submission.data.combination != context.combination2.1
+        {
+            warn!("User submitting invalid vote!");
+            continue;
+        }
+        if submission.data.combination == context.combination1.1 {
+            context.combination1_votes += 1;
+        } else {
+            context.combination2_votes += 1;
+        }
     }
-    if context.started + config.duration + game_config.extra_time < time.elapsed() {
-        progress.send(ProgressGame);
+    let out_of_time = context.started + config.duration + game_config.extra_time < time.elapsed();
+    let everyone_submited = context.submited.len() >= users.iter_active().count();
+    if out_of_time || everyone_submited {
+        if combinations_left >= 2 {
+            if context.combination1_votes >= context.combination2_votes {
+                commands.entity(context.combination2.0).insert(VotedOut);
+            } else {
+                commands.entity(context.combination1.0).insert(VotedOut);
+            }
+            next.set(VoteState);
+        } else {
+            progress.send(ProgressGame);
+        }
     }
 }
 

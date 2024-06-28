@@ -7,23 +7,27 @@ use bevy::{
     },
 };
 use bevy_egui::{EguiContext, EguiUserTextures};
-use common::game::{Drawing, Prompt};
+use bevy_quinnet::client::QuinnetClient;
+use common::{
+    game::{Combination, Drawing, Index, Prompt},
+    protocol::ClientMsgComm,
+};
 
 use crate::ui::widgets::root_element;
 
 #[derive(Event)]
 pub struct CombineData {
     pub duration: Duration,
-    pub drawings: Vec<Drawing>,
-    pub prompts: Vec<Prompt>,
+    pub drawings: Vec<(Index, Drawing)>,
+    pub prompts: Vec<(Index, Prompt)>,
 }
 
 #[derive(Resource)]
 pub struct CombineContext {
     pub duration: Duration,
-    pub drawings: Vec<Handle<Image>>,
+    pub drawings: Vec<(Index, Handle<Image>)>,
     pub drawing_ptr: usize,
-    pub prompts: Vec<Prompt>,
+    pub prompts: Vec<(Index, Prompt)>,
     pub prompt_ptr: usize,
 }
 
@@ -55,12 +59,12 @@ pub fn setup(
                     | TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             },
-            data: drawing.data,
+            data: drawing.1.data,
             ..default()
         };
         let image_handle = images.add(image);
         egui_user_textures.add_image(image_handle.clone_weak());
-        drawings.push(image_handle);
+        drawings.push((drawing.0, image_handle));
     }
 
     let prompts = data.prompts;
@@ -78,6 +82,7 @@ pub fn update(
     mut ctx: Query<&mut EguiContext>,
     images: Res<EguiUserTextures>,
     mut combine_ctx: ResMut<CombineContext>,
+    mut client: ResMut<QuinnetClient>,
 ) {
     let mut ctx = ctx.single_mut();
 
@@ -87,7 +92,7 @@ pub fn update(
             .num_columns(3)
             .show(ui, |ui| {
                 let image_id = images
-                    .image_id(&combine_ctx.drawings[combine_ctx.drawing_ptr])
+                    .image_id(&combine_ctx.drawings[combine_ctx.drawing_ptr].1)
                     .unwrap();
                 let prev_drawing = ui.button("<").clicked();
                 ui.image(egui::load::SizedTexture::new(
@@ -107,7 +112,7 @@ pub fn update(
 
                 let prompt = &combine_ctx.prompts[combine_ctx.prompt_ptr];
                 let prev_prompt = ui.button("<").clicked();
-                ui.label(&prompt.data);
+                ui.label(&prompt.1.data);
                 let next_prompt = ui.button(">").clicked();
                 ui.end_row();
 
@@ -119,7 +124,19 @@ pub fn update(
                         (combine_ctx.prompt_ptr + prompt_count - 1) % prompt_count;
                 }
             });
-        _ = ui.button("Submit");
+        let submit = ui.button("Submit").clicked();
+        if submit {
+            client
+                .connection_mut()
+                .send_message(
+                    ClientMsgComm::SubmitCombination(Combination {
+                        drawing: combine_ctx.drawings[combine_ctx.drawing_ptr].0,
+                        prompt: combine_ctx.prompts[combine_ctx.prompt_ptr].0,
+                    })
+                    .root(),
+                )
+                .ok();
+        }
     });
 }
 

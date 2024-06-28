@@ -29,14 +29,14 @@ pub struct Prompt {
 /// Combination of a prompt and a drawing.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Combination {
-    pub drawing: u64,
-    pub prompt: u64,
+    pub drawing: Index,
+    pub prompt: Index,
 }
 
 /// Vote for a combination.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Vote {
-    pub combination: u64,
+    pub combination: Index,
 }
 
 /// Author of a submission
@@ -52,8 +52,12 @@ pub struct Author {
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Combined;
 
-/// Serde-able index.
+/// Marker for combinations that's were voted out.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct VotedOut;
+
+/// Serde-able index.
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Index(pub u64);
 
 /// Index generator.

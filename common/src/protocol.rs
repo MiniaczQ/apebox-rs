@@ -4,7 +4,7 @@ use bevy::prelude::Event;
 use bevy_quinnet::shared::{channels::ChannelId, ClientId};
 use serde::{Deserialize, Serialize};
 
-use crate::game::{Combination, Drawing, Prompt, Vote};
+use crate::game::{Combination, Drawing, Index, Prompt, Vote};
 
 #[derive(Event)]
 pub struct NetMsg<T> {
@@ -55,13 +55,13 @@ pub enum ServerMsgRoot {
     },
     Combine {
         duration: Duration,
-        drawings: Vec<Drawing>,
-        prompts: Vec<Prompt>,
+        drawings: Vec<(Index, Drawing)>,
+        prompts: Vec<(Index, Prompt)>,
     },
     Vote {
         duration: Duration,
-        combination1: (Drawing, Prompt),
-        combination2: (Drawing, Prompt),
+        combination1: (Index, Drawing, Prompt),
+        combination2: (Index, Drawing, Prompt),
     },
     Wait,
 }
