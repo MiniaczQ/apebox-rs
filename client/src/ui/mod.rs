@@ -2,14 +2,8 @@ pub mod game;
 pub mod menu;
 pub mod widgets;
 
-use bevy::{prelude::*, render::view::RenderLayers};
-use common::app::AppExt;
-use game::{
-    combine::CombineData,
-    draw::{DrawData, SaveDrawingPlugin, UpdateBrush},
-    prompt::PromptData,
-    vote::VoteData,
-};
+use bevy::prelude::*;
+use game::GamePlugin;
 
 use crate::{
     states::{ClientState, GameState},
@@ -31,57 +25,6 @@ impl Plugin for ClientUiPlugin {
                 .run_if(in_state(GameState::Wait)),
         );
 
-        // Draw
-        app.add_event::<DrawData>();
-        app.add_event::<UpdateBrush>();
-        app.add_plugins(SaveDrawingPlugin);
-        app.insert_gizmo_config(
-            DefaultGizmoConfigGroup,
-            GizmoConfig {
-                render_layers: RenderLayers::layer(1),
-                line_joints: GizmoLineJoint::Round(32),
-                ..default()
-            },
-        );
-        app.add_reentrant_statebound(
-            GameState::Draw,
-            game::draw::setup,
-            game::draw::teardown,
-            (
-                game::draw::resize_brush,
-                game::draw::update,
-                game::draw::send_image,
-            )
-                .chain()
-                .in_set(GameSystemOdering::StateLogic),
-        );
-
-        // Prompt
-        app.add_event::<PromptData>();
-        app.add_reentrant_statebound(
-            GameState::Prompt,
-            game::prompt::setup,
-            game::prompt::teardown,
-            game::prompt::update.in_set(GameSystemOdering::StateLogic),
-        );
-
-        // Combine
-        app.add_event::<CombineData>();
-        app.add_reentrant_statebound(
-            GameState::Combine,
-            game::combine::setup,
-            game::combine::teardown,
-            game::combine::update.in_set(GameSystemOdering::StateLogic),
-        );
-
-        // Vote
-        app.add_event::<VoteData>();
-        app.add_systems(
-            Update,
-            game::vote::update
-                .in_set(GameSystemOdering::StateLogic)
-                .run_if(in_state(GameState::Vote)),
-        );
-        app.add_systems(OnExit(GameState::Vote), game::vote::teardown);
+        app.add_plugins(GamePlugin);
     }
 }

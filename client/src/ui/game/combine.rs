@@ -9,11 +9,26 @@ use bevy::{
 use bevy_egui::{EguiContext, EguiUserTextures};
 use bevy_quinnet::client::QuinnetClient;
 use common::{
-    game::{Combination, Drawing, Index, Prompt},
+    app::AppExt,
+    game::{Combination, Drawing, Index, Prompt, IMG_SIZE},
     protocol::ClientMsgComm,
 };
 
-use crate::ui::widgets::root_element;
+use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+
+pub struct CombinePlugin;
+
+impl Plugin for CombinePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_event::<CombineData>();
+        app.add_reentrant_statebound(
+            GameState::Combine,
+            setup,
+            teardown,
+            draw_ui.in_set(GameSystemOdering::StateLogic),
+        );
+    }
+}
 
 #[derive(Event)]
 pub struct CombineData {
@@ -42,8 +57,8 @@ pub fn setup(
     let mut drawings = Vec::with_capacity(data.drawings.len());
     for drawing in data.drawings {
         let size = Extent3d {
-            width: 512,
-            height: 512,
+            width: IMG_SIZE as u32,
+            height: IMG_SIZE as u32,
             ..default()
         };
         let image = Image {
@@ -78,7 +93,15 @@ pub fn setup(
     });
 }
 
-pub fn update(
+enum UiAction {
+    NextImage,
+    PreviousImage,
+    NextPrompt,
+    PreviousPrompt,
+    Submit,
+}
+
+pub fn draw_ui(
     mut ctx: Query<&mut EguiContext>,
     images: Res<EguiUserTextures>,
     mut combine_ctx: ResMut<CombineContext>,
@@ -140,4 +163,6 @@ pub fn update(
     });
 }
 
-pub fn teardown(mut commands: Commands) {}
+pub fn teardown(mut commands: Commands) {
+    commands.remove_resource::<CombineContext>();
+}

@@ -70,3 +70,5 @@ impl Indexer {
         Index(self.0)
     }
 }
+
+pub const IMG_SIZE: usize = 512;

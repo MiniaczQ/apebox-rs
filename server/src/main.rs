@@ -322,12 +322,10 @@ fn update_draw(
             submission.data,
             indexer.next(),
         ));
-        if context.submited.len() >= users.iter_active().count() {
-            progress.send(ProgressGame);
-            return;
-        }
     }
-    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+    let out_of_time = context.started + config.duration + game_config.extra_time < time.elapsed();
+    let everyone_submitted = context.submited.len() >= users.iter_active().count();
+    if out_of_time || everyone_submitted {
         info!("{:?} {:?}", context.started, time.elapsed());
         progress.send(ProgressGame);
     }
@@ -387,12 +385,10 @@ fn update_prompt(
             submission.data,
             indexer.next(),
         ));
-        if max_submissions <= context.submited {
-            progress.send(ProgressGame);
-            return;
-        }
     }
-    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+    let out_of_time = context.started + config.duration + game_config.extra_time < time.elapsed();
+    let everyone_submitted = max_submissions <= context.submited;
+    if out_of_time || everyone_submitted {
         progress.send(ProgressGame);
     }
 }
@@ -526,13 +522,10 @@ fn update_combine(
         ));
         commands.entity(drawing.0).insert(Combined);
         commands.entity(prompt.0).insert(Combined);
-
-        if context.submited.len() >= users.iter_active().count() {
-            progress.send(ProgressGame);
-            return;
-        }
     }
-    if context.started + config.duration + game_config.extra_time < time.elapsed() {
+    let out_of_time = context.started + config.duration + game_config.extra_time < time.elapsed();
+    let everyone_submitted = context.submited.len() >= users.iter_active().count();
+    if out_of_time || everyone_submitted {
         progress.send(ProgressGame);
     }
 }
@@ -598,13 +591,13 @@ fn setup_vote(
         .clone();
     let drawing2 = drawings
         .iter()
-        .find(|d| *d.0 == combination1.2.drawing)
+        .find(|d| *d.0 == combination2.2.drawing)
         .unwrap()
         .1
         .clone();
     let prompt2 = prompts
         .iter()
-        .find(|d| *d.0 == combination1.2.prompt)
+        .find(|d| *d.0 == combination2.2.prompt)
         .unwrap()
         .1
         .clone();
@@ -652,14 +645,14 @@ fn update_vote(
         }
     }
     let out_of_time = context.started + config.duration + game_config.extra_time < time.elapsed();
-    let everyone_submited = context.submited.len() >= users.iter_active().count();
-    if out_of_time || everyone_submited {
-        if combinations_left >= 2 {
-            if context.combination1_votes >= context.combination2_votes {
-                commands.entity(context.combination2.0).insert(VotedOut);
-            } else {
-                commands.entity(context.combination1.0).insert(VotedOut);
-            }
+    let everyone_submitted = context.submited.len() >= users.iter_active().count();
+    if out_of_time || everyone_submitted {
+        if context.combination1_votes >= context.combination2_votes {
+            commands.entity(context.combination2.0).insert(VotedOut);
+        } else {
+            commands.entity(context.combination1.0).insert(VotedOut);
+        }
+        if combinations_left > 2 {
             next.set(VoteState);
         } else {
             progress.send(ProgressGame);

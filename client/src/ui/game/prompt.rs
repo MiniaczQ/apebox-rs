@@ -3,9 +3,23 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
 use bevy_quinnet::client::QuinnetClient;
-use common::{game::Prompt, protocol::ClientMsgComm};
+use common::{app::AppExt, game::Prompt, protocol::ClientMsgComm};
 
-use crate::ui::widgets::root_element;
+use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+
+pub struct PromptPlugin;
+
+impl Plugin for PromptPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_event::<PromptData>();
+        app.add_reentrant_statebound(
+            GameState::Prompt,
+            setup,
+            teardown,
+            update.in_set(GameSystemOdering::StateLogic),
+        );
+    }
+}
 
 #[derive(Event)]
 pub struct PromptData {

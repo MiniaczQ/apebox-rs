@@ -18,11 +18,37 @@ use bevy::{
 };
 use bevy_egui::{EguiContext, EguiUserTextures};
 use bevy_quinnet::client::QuinnetClient;
-use common::{game::Drawing, protocol::ClientMsgComm};
+use common::{app::AppExt, game::Drawing, protocol::ClientMsgComm};
 use crossbeam_channel::{Receiver, Sender};
 use egui::Stroke;
 
-use crate::{states::GameState, ui::widgets::root_element};
+use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+
+pub struct DrawPlugin;
+
+impl Plugin for DrawPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_event::<DrawData>();
+        app.add_event::<UpdateBrush>();
+        app.add_plugins(SaveDrawingPlugin);
+        app.insert_gizmo_config(
+            DefaultGizmoConfigGroup,
+            GizmoConfig {
+                render_layers: RenderLayers::layer(1),
+                line_joints: GizmoLineJoint::Round(32),
+                ..default()
+            },
+        );
+        app.add_reentrant_statebound(
+            GameState::Draw,
+            setup,
+            teardown,
+            (resize_brush, update, send_image)
+                .chain()
+                .in_set(GameSystemOdering::StateLogic),
+        );
+    }
+}
 
 const BRUSH_SIZES: [f32; 5] = [3.0, 5.0, 13.0, 21.0, 43.0];
 const BRUSH_COLORS: [egui::Color32; 10] = [
@@ -377,7 +403,7 @@ pub fn save_drawing(
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some("drawing-transfer-buffer"),
-        size: 512 * 512 * 4,
+        size: IMG_SIZE as u64 * IMG_SIZE as u64 * 4,
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -389,7 +415,7 @@ pub fn save_drawing(
             buffer: &buffer,
             layout: ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(512 * 4),
+                bytes_per_row: Some(IMG_SIZE as u32 * 4),
                 rows_per_image: None,
             },
         },
@@ -419,9 +445,6 @@ pub fn save_drawing(
         let result = Vec::from(&*data);
         drop(data);
         drop(buffer);
-        // Send data to main app
-        let empty = result.iter().filter(|x| **x == 0).count();
-        info!("{}", empty as f32 / (512. * 512. * 4.));
         sender.send(result).ok();
     };
 

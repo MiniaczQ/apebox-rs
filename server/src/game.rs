@@ -42,23 +42,23 @@ pub struct GameConfig {
 impl GameConfig {
     pub fn short() -> Self {
         Self {
-            extra_time: Duration::from_secs(30),
+            extra_time: Duration::from_secs(3),
             states: vec![
                 StateData::Vote(VoteConfig {
-                    duration: Duration::from_secs(4),
+                    duration: Duration::from_secs(10),
                 }),
                 StateData::Combine(CombineConfig {
-                    duration: Duration::from_secs(4),
+                    duration: Duration::from_secs(30),
                 }),
                 StateData::Prompt(PromptConfig {
                     prompts_per_player: 3,
-                    duration: Duration::from_secs(4),
+                    duration: Duration::from_secs(30),
                 }),
                 StateData::Draw(DrawConfig {
-                    duration: Duration::from_secs(4),
+                    duration: Duration::from_secs(120),
                 }),
                 StateData::Draw(DrawConfig {
-                    duration: Duration::from_secs(4),
+                    duration: Duration::from_secs(120),
                 }),
             ],
         }
