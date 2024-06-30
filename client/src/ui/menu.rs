@@ -8,12 +8,12 @@ use crate::{states::MenuState, ConnectionData};
 use super::widgets::{root_element, validated_singleline_textbox};
 
 pub fn show(
-    mut egui_ctx: Query<&mut EguiContext>,
+    mut ui_ctx: Query<&mut EguiContext>,
     mut data: ResMut<ConnectionData>,
     mut next: ResMut<NextState<MenuState>>,
     state: Res<State<MenuState>>,
 ) {
-    let mut ctx = egui_ctx.single_mut();
+    let mut ctx = ui_ctx.single_mut();
 
     let address_is_valid = data.address.parse::<SocketAddr>().is_ok();
 

@@ -1,9 +1,11 @@
+pub mod fonts;
 pub mod game;
 pub mod menu;
-pub mod widgets;
 pub mod util;
+pub mod widgets;
 
 use bevy::prelude::*;
+use fonts::FontsPlugin;
 use game::GamePlugin;
 
 use crate::{
@@ -26,6 +28,6 @@ impl Plugin for ClientUiPlugin {
                 .run_if(in_state(GameState::Wait)),
         );
 
-        app.add_plugins(GamePlugin);
+        app.add_plugins((FontsPlugin, GamePlugin));
     }
 }

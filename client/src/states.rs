@@ -2,8 +2,10 @@ use bevy::prelude::*;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum ClientState {
-    /// In menu.
+    /// Loading resources.
     #[default]
+    Loading,
+    /// In menu.
     Menu,
     /// In a lobby.
     Game,
