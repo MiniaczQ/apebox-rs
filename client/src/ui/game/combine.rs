@@ -131,13 +131,14 @@ fn draw_ui(
                 if ui.button("<--").clicked() {
                     actions.send(UiAction::PreviousImage);
                 }
-                ui.allocate_ui(egui::vec2(512., 512.), |ui| {
+                let size = egui::vec2(512., 512.);
+                ui.allocate_ui(size, |ui| {
                     let rect = ui.max_rect();
                     let painter = ui.painter_at(rect);
                     painter.rect_filled(rect, 0.0, drawing.1 .1);
                     let image = egui::Image::from_texture(egui::load::SizedTexture::new(
                         image_id,
-                        egui::vec2(512., 512.),
+                        size,
                     ));
                     ui.add(image);
                 });

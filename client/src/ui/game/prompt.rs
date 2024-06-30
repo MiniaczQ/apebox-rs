@@ -77,10 +77,11 @@ fn show_ui(
     let mut ui_ctx = ui_ctx.single_mut();
 
     root_element(ui_ctx.get_mut(), |ui| {
-        ui.label("Prompt");
-
-        let font_id = ctx.font.into_font_id();
-        ui.add(egui::TextEdit::singleline(&mut ctx.prompt).font(font_id));
+        ui.horizontal(|ui| {
+            let font_id = ctx.font.into_font_id();
+            ui.label(egui::RichText::new("Prompt").font(font_id.clone()));
+            ui.add(egui::TextEdit::singleline(&mut ctx.prompt).font(font_id));
+        });
 
         if ui.button("Submit").clicked() {
             actions.send(UiAction::Submit);

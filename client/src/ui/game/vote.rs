@@ -44,7 +44,7 @@ pub struct Data {
     pub combination2: (Index, Drawing, Prompt),
 }
 
-type Combination = (Index, Handle<Image>, Prompt);
+type Combination = (Index, (Handle<Image>, egui::Color32), Prompt);
 
 #[derive(Resource)]
 pub struct Context {
@@ -92,7 +92,13 @@ fn setup(
     };
     let image_handle = images.add(image);
     egui_user_textures.add_image(image_handle.clone_weak());
-    let combination1 = (data.combination1.0, image_handle, data.combination1.2);
+    let bg_color = data.combination1.1.bg_color;
+    let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
+    let combination1 = (
+        data.combination1.0,
+        (image_handle, bg_color),
+        data.combination1.2,
+    );
 
     let size = Extent3d {
         width: 512,
@@ -117,7 +123,13 @@ fn setup(
     };
     let image_handle = images.add(image);
     egui_user_textures.add_image(image_handle.clone_weak());
-    let combination2 = (data.combination2.0, image_handle, data.combination2.2);
+    let bg_color = data.combination2.1.bg_color;
+    let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
+    let combination2 = (
+        data.combination2.0,
+        (image_handle, bg_color),
+        data.combination2.2,
+    );
 
     commands.insert_resource(Context {
         duration: data.duration,
@@ -167,11 +179,15 @@ fn show_vote_option(
     combination: &Combination,
     action: UiAction,
 ) {
-    let image_id = images.image_id(&combination.1).unwrap();
-    ui.image(egui::load::SizedTexture::new(
-        image_id,
-        egui::vec2(400., 400.),
-    ));
+    let image_id = images.image_id(&combination.1 .0).unwrap();
+    let size = egui::vec2(512., 512.);
+    ui.allocate_ui(size, |ui| {
+        let rect = ui.max_rect();
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, combination.1 .1);
+        let image = egui::Image::from_texture(egui::load::SizedTexture::new(image_id, size));
+        ui.add(image);
+    });
     ui.label(RichText::new(&combination.2.text).font(combination.2.font.into_font_id()));
     if ui.button("Vote").clicked() {
         actions.send(action);

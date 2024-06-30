@@ -259,7 +259,7 @@ fn start_lobby(
     mut progress: EventWriter<ProgressGame>,
 ) {
     // TODO: Wait for host start instead
-    if users.registered.len() >= 1 {
+    if users.registered.len() >= 2 {
         room_next.set(RoomState::Running);
         progress.send(ProgressGame);
     }
@@ -284,7 +284,7 @@ fn setup_draw(
     users: Res<Users>,
     config: Res<DrawConfig>,
 ) {
-    info!("Setup draw {:?}", time.elapsed());
+    info!("Setup draw");
     commands.insert_resource(DrawCtx {
         started: time.elapsed(),
         submited: HashSet::new(),
@@ -466,8 +466,6 @@ fn setup_combine(
             .iter_many(prompt_ids)
             .map(|d| (*d.1, d.2.clone()))
             .collect::<Vec<_>>();
-
-        info!(id = ?id, d = drawing_ids.len(), p = prompt_ids.len(), "Combinations sent to user");
 
         let message = ServerMsgRoot::Combine {
             duration: config.duration,
