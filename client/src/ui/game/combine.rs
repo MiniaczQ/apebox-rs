@@ -136,10 +136,8 @@ fn draw_ui(
                     let rect = ui.max_rect();
                     let painter = ui.painter_at(rect);
                     painter.rect_filled(rect, 0.0, drawing.1 .1);
-                    let image = egui::Image::from_texture(egui::load::SizedTexture::new(
-                        image_id,
-                        size,
-                    ));
+                    let image =
+                        egui::Image::from_texture(egui::load::SizedTexture::new(image_id, size));
                     ui.add(image);
                 });
                 if ui.button("-->").clicked() {
@@ -151,7 +149,11 @@ fn draw_ui(
                 if ui.button("<--").clicked() {
                     actions.send(UiAction::PreviousPrompt);
                 }
-                ui.label(RichText::new(&prompt.1.text).font(prompt.1.font.into_font_id()));
+                ui.label(
+                    RichText::new(&prompt.1.text)
+                        .font(prompt.1.font.into_font_id())
+                        .color(egui::Color32::WHITE),
+                );
                 if ui.button("-->").clicked() {
                     actions.send(UiAction::NextPrompt);
                 }

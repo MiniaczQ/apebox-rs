@@ -51,6 +51,7 @@ pub struct Context {
     pub duration: Duration,
     pub combination1: Combination,
     pub combination2: Combination,
+    pub shirt: Handle<Image>,
 }
 
 #[derive(Event)]
@@ -64,78 +65,58 @@ fn setup(
     mut actions: ResMut<Events<UiAction>>,
     mut images: ResMut<Assets<Image>>,
     mut egui_user_textures: ResMut<EguiUserTextures>,
+    asset_server: Res<AssetServer>,
     data: Res<Data>,
 ) {
     actions.clear();
     let data = data.clone();
 
-    let size = Extent3d {
-        width: 512,
-        height: 512,
-        ..default()
-    };
-    let image = Image {
-        texture_descriptor: TextureDescriptor {
-            label: None,
-            size,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-        data: data.combination1.1.drawing,
-        ..default()
-    };
-    let image_handle = images.add(image);
-    egui_user_textures.add_image(image_handle.clone_weak());
-    let bg_color = data.combination1.1.bg_color;
-    let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
-    let combination1 = (
-        data.combination1.0,
-        (image_handle, bg_color),
-        data.combination1.2,
-    );
+    let shirt: Handle<Image> = asset_server.load("textures/shirts/shirt1.png");
+    egui_user_textures.add_image(shirt.clone_weak());
 
-    let size = Extent3d {
-        width: 512,
-        height: 512,
-        ..default()
-    };
-    let image = Image {
-        texture_descriptor: TextureDescriptor {
-            label: None,
-            size,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-        data: data.combination2.1.drawing,
-        ..default()
-    };
-    let image_handle = images.add(image);
-    egui_user_textures.add_image(image_handle.clone_weak());
-    let bg_color = data.combination2.1.bg_color;
-    let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
-    let combination2 = (
-        data.combination2.0,
-        (image_handle, bg_color),
-        data.combination2.2,
-    );
+    let combination1 = prep_combination(&mut images, &mut egui_user_textures, data.combination1);
+    let combination2 = prep_combination(&mut images, &mut egui_user_textures, data.combination2);
 
     commands.insert_resource(Context {
         duration: data.duration,
         combination1,
         combination2,
+        shirt,
     });
+}
+
+fn prep_combination(
+    images: &mut Assets<Image>,
+    egui_user_textures: &mut EguiUserTextures,
+    combination: (Index, Drawing, Prompt),
+) -> (Index, (Handle<Image>, egui::Color32), Prompt) {
+    let size = Extent3d {
+        width: 512,
+        height: 512,
+        ..default()
+    };
+    let image = Image {
+        texture_descriptor: TextureDescriptor {
+            label: None,
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Bgra8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        data: combination.1.drawing,
+        ..default()
+    };
+    let image_handle = images.add(image);
+    egui_user_textures.add_image(image_handle.clone_weak());
+    let bg_color = combination.1.bg_color;
+    let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
+    let combination2 = (combination.0, (image_handle, bg_color), combination.2);
+    combination2
 }
 
 fn show_ui(
@@ -156,6 +137,8 @@ fn show_ui(
                     &mut actions,
                     &images,
                     &ctx.combination1,
+                    &ctx.shirt,
+                    ctx.combination1.1 .1,
                     UiAction::Vote1,
                 );
             });
@@ -165,6 +148,8 @@ fn show_ui(
                     &mut actions,
                     &images,
                     &ctx.combination2,
+                    &ctx.shirt,
+                    ctx.combination2.1 .1,
                     UiAction::Vote2,
                 );
             });
@@ -177,18 +162,49 @@ fn show_vote_option(
     actions: &mut EventWriter<UiAction>,
     images: &EguiUserTextures,
     combination: &Combination,
+    shirt: &Handle<Image>,
+    shirt_tint: egui::Color32,
     action: UiAction,
 ) {
-    let image_id = images.image_id(&combination.1 .0).unwrap();
+    let shirt = images.image_id(shirt).unwrap();
+    let drawing = images.image_id(&combination.1 .0).unwrap();
+
     let size = egui::vec2(512., 512.);
-    ui.allocate_ui(size, |ui| {
-        let rect = ui.max_rect();
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, combination.1 .1);
-        let image = egui::Image::from_texture(egui::load::SizedTexture::new(image_id, size));
+    let (rect, _) = ui.allocate_exact_size(
+        size,
+        egui::Sense {
+            click: false,
+            drag: false,
+            focusable: false,
+        },
+    );
+    ui.allocate_ui_at_rect(rect, |ui| {
+        let image =
+            egui::Image::from_texture(egui::load::SizedTexture::new(shirt, egui::vec2(512., 512.)))
+                .tint(shirt_tint);
         ui.add(image);
     });
-    ui.label(RichText::new(&combination.2.text).font(combination.2.font.into_font_id()));
+    ui.allocate_ui_at_rect(rect.shrink(128.0), |ui| {
+        let image = egui::Image::from_texture(egui::load::SizedTexture::new(
+            drawing,
+            egui::vec2(256., 256.),
+        ));
+        ui.add(image);
+    });
+    ui.allocate_ui_at_rect(
+        rect.shrink2(egui::vec2(128.0, 224.0) + egui::vec2(0.0, 160.0)),
+        |ui| {
+            ui.centered_and_justified(|ui| {
+                let label = egui::Label::new(
+                    RichText::new(&combination.2.text)
+                        .font(combination.2.font.into_font_id())
+                        .color(egui::Color32::WHITE),
+                );
+                ui.add(label);
+            });
+        },
+    );
+    ui.advance_cursor_after_rect(rect);
     if ui.button("Vote").clicked() {
         actions.send(action);
     }

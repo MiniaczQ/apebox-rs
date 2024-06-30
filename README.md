@@ -1,6 +1,6 @@
 # T-Shirt Knock-Off
 
-Open source clone of Tee K.O. game.
+Open source "Tee K.O."-like game.
 
 # Roadmap
 
@@ -11,6 +11,6 @@ Open source clone of Tee K.O. game.
     - [ ] Escape Gizmos
     - [ ] Add eraser
     - [ ] Add undo/redo
-- [ ] Shirt colors
+- [x] Shirt colors
 - [ ] Shirt graphics
-- [ ] Fonts
+- [x] Fonts

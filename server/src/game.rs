@@ -45,7 +45,7 @@ impl GameConfig {
             extra_time: Duration::from_secs(3),
             states: vec![
                 StateData::Vote(VoteConfig {
-                    duration: Duration::from_secs(10),
+                    duration: Duration::from_secs(30),
                 }),
                 StateData::Combine(CombineConfig {
                     duration: Duration::from_secs(30),

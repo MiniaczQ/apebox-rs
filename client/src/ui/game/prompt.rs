@@ -80,7 +80,11 @@ fn show_ui(
         ui.horizontal(|ui| {
             let font_id = ctx.font.into_font_id();
             ui.label(egui::RichText::new("Prompt").font(font_id.clone()));
-            ui.add(egui::TextEdit::singleline(&mut ctx.prompt).font(font_id));
+            ui.add(
+                egui::TextEdit::singleline(&mut ctx.prompt)
+                    .font(font_id)
+                    .text_color(egui::Color32::WHITE),
+            );
         });
 
         if ui.button("Submit").clicked() {
