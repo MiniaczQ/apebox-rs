@@ -151,7 +151,7 @@ fn draw_ui(
                 }
                 ui.label(
                     RichText::new(&prompt.1.text)
-                        .font(prompt.1.font.into_font_id())
+                        .font(prompt.1.font.get_font_id())
                         .color(egui::Color32::WHITE),
                 );
                 if ui.button("-->").clicked() {

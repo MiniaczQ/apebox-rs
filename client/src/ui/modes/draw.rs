@@ -362,8 +362,8 @@ fn execute_actions(
 mod save_image {
     use super::IMG_SIZE;
 
+    use bevy::prelude::*;
     use bevy::{
-        prelude::*,
         render::{
             {
                 render_asset::RenderAssets,

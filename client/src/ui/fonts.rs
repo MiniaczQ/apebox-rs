@@ -30,18 +30,18 @@ pub const FONTS: [&str; 6] = [
 ];
 
 pub trait IntoFontFamily {
-    fn into_family(&self) -> FontFamily;
-    fn into_font_id(&self) -> FontId;
+    fn get_family(&self) -> FontFamily;
+    fn get_font_id(&self) -> FontId;
 }
 
 impl IntoFontFamily for CustomFont {
-    fn into_family(&self) -> FontFamily {
+    fn get_family(&self) -> FontFamily {
         let font = FONTS[self.0];
         FontFamily::Name(font.into())
     }
 
-    fn into_font_id(&self) -> FontId {
-        FontId::new(24.0, self.into_family())
+    fn get_font_id(&self) -> FontId {
+        FontId::new(24.0, self.get_family())
     }
 }
 

@@ -6,9 +6,9 @@ pub mod wait;
 
 use bevy::prelude::*;
 
-pub struct GamePlugin;
+pub struct ModesPlugin;
 
-impl Plugin for GamePlugin {
+impl Plugin for ModesPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             draw::ModePlugin,

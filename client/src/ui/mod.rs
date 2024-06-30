@@ -1,12 +1,12 @@
 pub mod fonts;
-pub mod game;
 pub mod menu;
+pub mod modes;
 pub mod util;
 pub mod widgets;
 
 use bevy::prelude::*;
 use fonts::FontsPlugin;
-use game::GamePlugin;
+use modes::ModesPlugin;
 
 use crate::{
     states::{ClientState, GameState},
@@ -23,11 +23,11 @@ impl Plugin for ClientUiPlugin {
         // Wait
         app.add_systems(
             Update,
-            game::wait::update
+            modes::wait::update
                 .in_set(GameSystemOdering::StateLogic)
                 .run_if(in_state(GameState::Wait)),
         );
 
-        app.add_plugins((FontsPlugin, GamePlugin));
+        app.add_plugins((FontsPlugin, ModesPlugin));
     }
 }

@@ -78,7 +78,7 @@ fn show_ui(
 
     root_element(ui_ctx.get_mut(), |ui| {
         ui.horizontal(|ui| {
-            let font_id = ctx.font.into_font_id();
+            let font_id = ctx.font.get_font_id();
             ui.label(egui::RichText::new("Prompt").font(font_id.clone()));
             ui.add(
                 egui::TextEdit::singleline(&mut ctx.prompt)

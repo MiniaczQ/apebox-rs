@@ -115,8 +115,7 @@ fn prep_combination(
     egui_user_textures.add_image(image_handle.clone_weak());
     let bg_color = combination.1.bg_color;
     let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
-    let combination2 = (combination.0, (image_handle, bg_color), combination.2);
-    combination2
+    (combination.0, (image_handle, bg_color), combination.2)
 }
 
 fn show_ui(
@@ -197,7 +196,7 @@ fn show_vote_option(
             ui.centered_and_justified(|ui| {
                 let label = egui::Label::new(
                     RichText::new(&combination.2.text)
-                        .font(combination.2.font.into_font_id())
+                        .font(combination.2.font.get_font_id())
                         .color(egui::Color32::WHITE),
                 );
                 ui.add(label);

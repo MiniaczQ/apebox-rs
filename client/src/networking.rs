@@ -14,7 +14,7 @@ use common::protocol::ServerMsgRoot;
 
 use crate::{
     states::{ClientState, GameState, MenuState},
-    ui::game::{combine, draw, prompt, vote},
+    ui::modes::{combine, draw, prompt, vote},
     ConnectionData,
 };
 
