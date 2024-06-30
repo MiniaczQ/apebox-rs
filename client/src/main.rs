@@ -1,3 +1,4 @@
+pub mod loader;
 mod networking;
 mod states;
 mod ui;
@@ -8,7 +9,8 @@ use bevy::{dev_tools::states::log_transitions, prelude::*};
 use bevy_egui::EguiPlugin;
 use bevy_quinnet::client::{QuinnetClient, QuinnetClientPlugin};
 use common::{protocol::ClientMsgRoot, transitions::IdentityTransitionsPlugin};
-use states::{ClientState, GameState, MenuState};
+use loader::ResourceBarrierExtApp;
+use states::{ClientState, GameState, InitialResources, MenuState};
 use ui::ClientUiPlugin;
 
 fn main() {
@@ -28,6 +30,7 @@ fn main() {
     app.add_sub_state::<MenuState>();
     app.add_sub_state::<GameState>();
     app.init_resource::<ConnectionData>();
+    app.add_resource_barrier::<InitialResources>();
 
     app.configure_sets(
         Update,

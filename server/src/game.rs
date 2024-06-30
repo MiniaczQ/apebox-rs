@@ -51,7 +51,7 @@ impl GameConfig {
                     duration: Duration::from_secs(30),
                 }),
                 StateData::Prompt(PromptConfig {
-                    prompts_per_player: 6465,
+                    prompts_per_player: 3,
                     duration: Duration::from_secs(30),
                 }),
                 StateData::Draw(DrawConfig {

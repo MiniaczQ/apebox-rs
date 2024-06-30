@@ -5,7 +5,10 @@ use common::game::CustomFont;
 use egui::{FontData, FontFamily, FontId};
 use thiserror::Error;
 
-use crate::states::ClientState;
+use crate::{
+    loader::{ResourceBarrier, ResourceBarrierExtApp},
+    states::InitialResources,
+};
 
 pub struct FontsPlugin;
 
@@ -13,15 +16,12 @@ impl Plugin for FontsPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<EguiFont>();
         app.init_asset_loader::<EguiFontLoader>();
-        app.add_systems(Update, load_fonts.run_if(in_state(ClientState::Loading)));
+        app.add_resource_loader::<InitialResources, _>(load_fonts);
     }
 }
 
 pub const FONTS: [&str; 6] = [
     "fonts/BLADRMF_.TTF",
-    //"fonts/Dalmation-FREE.otf",
-    //"fonts/Good Brush.ttf",
-    //"fonts/Grunge.ttf",
     "fonts/IHATCS__.TTF",
     "fonts/Lemon Shake Shake.ttf",
     "fonts/LittleKidsHandwriting-Regular.otf",
@@ -48,10 +48,14 @@ impl IntoFontFamily for CustomFont {
 fn load_fonts(
     mut egui_fonts: ResMut<Assets<EguiFont>>,
     mut local_handles: Local<Option<Vec<Handle<EguiFont>>>>,
-    mut next: ResMut<NextState<ClientState>>,
     mut ui_ctx: Query<&mut EguiContext>,
+    mut barrier: ResourceBarrier<InitialResources>,
     asset_server: Res<AssetServer>,
 ) {
+    if barrier.is_completed() {
+        return;
+    }
+
     // Queue asset loading
     let Some(handles) = local_handles.as_mut() else {
         let mut handles: Vec<Handle<EguiFont>> = vec![];
@@ -78,7 +82,8 @@ fn load_fonts(
         fonts.families.entry(family).or_default().push(name.into());
     }
     ui_ctx.single_mut().get_mut().set_fonts(fonts);
-    next.set(ClientState::Menu);
+
+    barrier.complete();
 }
 
 #[derive(Asset, TypePath)]

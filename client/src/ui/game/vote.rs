@@ -44,11 +44,13 @@ pub struct Data {
     pub combination2: (Index, Drawing, Prompt),
 }
 
+type Combination = (Index, Handle<Image>, Prompt);
+
 #[derive(Resource)]
 pub struct Context {
     pub duration: Duration,
-    pub combination1: (Index, Handle<Image>, Prompt),
-    pub combination2: (Index, Handle<Image>, Prompt),
+    pub combination1: Combination,
+    pub combination2: Combination,
 }
 
 #[derive(Event)]
@@ -128,7 +130,7 @@ fn show_ui(
     mut ui_ctx: Query<&mut EguiContext>,
     mut actions: EventWriter<UiAction>,
     images: Res<EguiUserTextures>,
-    ctx: ResMut<Context>,
+    ctx: Res<Context>,
 ) {
     let mut ui_ctx = ui_ctx.single_mut();
 
@@ -137,36 +139,43 @@ fn show_ui(
 
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                let image_id = images.image_id(&ctx.combination1.1).unwrap();
-                ui.image(egui::load::SizedTexture::new(
-                    image_id,
-                    egui::vec2(300., 300.),
-                ));
-
-                ui.label(
-                    RichText::new(&ctx.combination1.2.data)
-                        .font(ctx.combination1.2.font.into_font_id()),
+                show_vote_option(
+                    ui,
+                    &mut actions,
+                    &images,
+                    &ctx.combination1,
+                    UiAction::Vote1,
                 );
-                if ui.button("Vote").clicked() {
-                    actions.send(UiAction::Vote1);
-                }
             });
             ui.vertical(|ui| {
-                let image_id = images.image_id(&ctx.combination2.1).unwrap();
-                ui.image(egui::load::SizedTexture::new(
-                    image_id,
-                    egui::vec2(300., 300.),
-                ));
-                ui.label(
-                    RichText::new(&ctx.combination2.2.data)
-                        .font(ctx.combination2.2.font.into_font_id()),
+                show_vote_option(
+                    ui,
+                    &mut actions,
+                    &images,
+                    &ctx.combination2,
+                    UiAction::Vote2,
                 );
-                if ui.button("Vote").clicked() {
-                    actions.send(UiAction::Vote2);
-                }
             });
         });
     });
+}
+
+fn show_vote_option(
+    ui: &mut egui::Ui,
+    actions: &mut EventWriter<UiAction>,
+    images: &EguiUserTextures,
+    combination: &Combination,
+    action: UiAction,
+) {
+    let image_id = images.image_id(&combination.1).unwrap();
+    ui.image(egui::load::SizedTexture::new(
+        image_id,
+        egui::vec2(400., 400.),
+    ));
+    ui.label(RichText::new(&combination.2.data).font(combination.2.font.into_font_id()));
+    if ui.button("Vote").clicked() {
+        actions.send(action);
+    }
 }
 
 fn execute_actions(
