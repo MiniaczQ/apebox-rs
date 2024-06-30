@@ -87,7 +87,7 @@ fn setup(
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
-        data: data.combination1.1.data,
+        data: data.combination1.1.drawing,
         ..default()
     };
     let image_handle = images.add(image);
@@ -112,7 +112,7 @@ fn setup(
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
-        data: data.combination2.1.data,
+        data: data.combination2.1.drawing,
         ..default()
     };
     let image_handle = images.add(image);
@@ -172,7 +172,7 @@ fn show_vote_option(
         image_id,
         egui::vec2(400., 400.),
     ));
-    ui.label(RichText::new(&combination.2.data).font(combination.2.font.into_font_id()));
+    ui.label(RichText::new(&combination.2.text).font(combination.2.font.into_font_id()));
     if ui.button("Vote").clicked() {
         actions.send(action);
     }

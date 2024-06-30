@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize};
 /// Single drawing with predetermined size.
 #[derive(Component, Clone, Serialize, Deserialize)]
 pub struct Drawing {
-    pub data: Vec<u8>,
+    pub drawing: Vec<u8>,
+    pub bg_color: [u8; 3],
 }
 
 impl Debug for Drawing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Drawing")
-            .field("data", &self.data.len())
+            .field("data", &self.drawing.len())
             .finish()
     }
 }
@@ -27,8 +28,8 @@ pub struct CustomFont(pub usize);
 /// Single user prompt.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Prompt {
+    pub text: String,
     pub font: CustomFont,
-    pub data: String,
 }
 
 /// Combination of a prompt and a drawing.

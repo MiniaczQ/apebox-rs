@@ -47,7 +47,7 @@ pub struct Data {
 #[derive(Resource)]
 pub struct Context {
     pub duration: Duration,
-    pub drawings: Vec<(Index, Handle<Image>)>,
+    pub drawings: Vec<(Index, (Handle<Image>, egui::Color32))>,
     pub drawing_ptr: usize,
     pub prompts: Vec<(Index, Prompt)>,
     pub prompt_ptr: usize,
@@ -92,12 +92,14 @@ fn setup(
                     | TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             },
-            data: drawing.1.data,
+            data: drawing.1.drawing,
             ..default()
         };
         let image_handle = images.add(image);
         textures.add_image(image_handle.clone_weak());
-        drawings.push((drawing.0, image_handle));
+        let bg_color = drawing.1.bg_color;
+        let bg_color = egui::Color32::from_rgb(bg_color[0], bg_color[1], bg_color[2]);
+        drawings.push((drawing.0, (image_handle, bg_color)));
     }
 
     let prompts = data.prompts;
@@ -117,21 +119,28 @@ fn draw_ui(
     images: Res<EguiUserTextures>,
     ctx: Res<Context>,
 ) {
-    let mut uictx = ui_ctx.single_mut();
+    let mut ui_ctx = ui_ctx.single_mut();
 
-    root_element(uictx.get_mut(), |ui| {
+    root_element(ui_ctx.get_mut(), |ui| {
         ui.label("Combine");
         egui::Grid::new("nav-buttons")
             .num_columns(3)
             .show(ui, |ui| {
-                let image_id = images.image_id(&ctx.drawings[ctx.drawing_ptr].1).unwrap();
+                let drawing = &ctx.drawings[ctx.drawing_ptr];
+                let image_id = images.image_id(&drawing.1 .0).unwrap();
                 if ui.button("<--").clicked() {
                     actions.send(UiAction::PreviousImage);
                 }
-                ui.image(egui::load::SizedTexture::new(
-                    image_id,
-                    egui::vec2(300., 300.),
-                ));
+                ui.allocate_ui(egui::vec2(512., 512.), |ui| {
+                    let rect = ui.max_rect();
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 0.0, drawing.1 .1);
+                    let image = egui::Image::from_texture(egui::load::SizedTexture::new(
+                        image_id,
+                        egui::vec2(512., 512.),
+                    ));
+                    ui.add(image);
+                });
                 if ui.button("-->").clicked() {
                     actions.send(UiAction::NextImage);
                 }
@@ -141,7 +150,7 @@ fn draw_ui(
                 if ui.button("<--").clicked() {
                     actions.send(UiAction::PreviousPrompt);
                 }
-                ui.label(RichText::new(&prompt.1.data).font(prompt.1.font.into_font_id()));
+                ui.label(RichText::new(&prompt.1.text).font(prompt.1.font.into_font_id()));
                 if ui.button("-->").clicked() {
                     actions.send(UiAction::NextPrompt);
                 }

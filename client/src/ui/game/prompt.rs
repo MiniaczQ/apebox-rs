@@ -102,7 +102,7 @@ fn execute_actions(
                     .connection_mut()
                     .send_message(
                         ClientMsgComm::SubmitPrompt(Prompt {
-                            data: old_ctx.prompt,
+                            text: old_ctx.prompt,
                             font: old_ctx.font,
                         })
                         .root(),

@@ -3,23 +3,15 @@ use std::time::Duration;
 use bevy::{
     prelude::*,
     render::{
-        render_asset::RenderAssets,
         render_resource::{
-            BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
-            ImageDataLayout, MapMode, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureUsages,
+            Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
         },
-        renderer::{RenderDevice, RenderQueue},
-        texture::GpuImage,
         view::RenderLayers,
-        Render, RenderApp,
     },
-    tasks::AsyncComputeTaskPool,
 };
 use bevy_egui::{EguiContext, EguiUserTextures};
 use bevy_quinnet::client::QuinnetClient;
 use common::{app::AppExt, game::Drawing, protocol::ClientMsgComm};
-use crossbeam_channel::{Receiver, Sender};
 use egui::Stroke;
 
 use crate::{
@@ -33,7 +25,7 @@ pub struct ModePlugin;
 impl Plugin for ModePlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<UiAction>();
-        app.add_plugins(SaveDrawingPlugin);
+        app.add_plugins(save_image::SaveDrawingPlugin);
         app.insert_gizmo_config(
             DefaultGizmoConfigGroup,
             GizmoConfig {
@@ -55,16 +47,16 @@ impl Plugin for ModePlugin {
 
 const BRUSH_SIZES: [f32; 5] = [3.0, 5.0, 13.0, 21.0, 43.0];
 const BRUSH_COLORS: [egui::Color32; 10] = [
-    egui::Color32::WHITE,
-    egui::Color32::RED,
-    egui::Color32::GREEN,
     egui::Color32::BLACK,
-    egui::Color32::WHITE,
-    egui::Color32::GOLD,
     egui::Color32::GRAY,
     egui::Color32::WHITE,
-    egui::Color32::WHITE,
-    egui::Color32::WHITE,
+    egui::Color32::RED,
+    egui::Color32::DARK_RED,
+    egui::Color32::GREEN,
+    egui::Color32::DARK_GREEN,
+    egui::Color32::BLUE,
+    egui::Color32::DARK_BLUE,
+    egui::Color32::GOLD,
 ];
 const IMG_HALF_SIZE: f32 = 256.0;
 const IMG_SIZE: f32 = 2.0 * IMG_HALF_SIZE;
@@ -83,12 +75,14 @@ pub struct Context {
     pub last_pos: Option<Vec2>,
     pub brush_size: f32,
     pub brush_color: egui::Color32,
+    pub bg_color: egui::Color32,
 }
 
 #[derive(Event)]
 pub enum UiAction {
-    Size(f32),
-    Color(egui::Color32),
+    BrushSize(f32),
+    BrushColor(egui::Color32),
+    ShirtColor(egui::Color32),
     Submit,
 }
 
@@ -144,8 +138,9 @@ fn setup(
         last_pos: None,
         brush_size: BRUSH_SIZES[2],
         brush_color: BRUSH_COLORS[0],
+        bg_color: BRUSH_COLORS[2],
     });
-    actions.send(UiAction::Size(BRUSH_SIZES[2]));
+    actions.send(UiAction::BrushSize(BRUSH_SIZES[2]));
 }
 
 fn teardown(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
@@ -169,8 +164,9 @@ fn show_ui(
         ui.label("Draw");
 
         ui.horizontal(|ui| {
-            show_colors(ui, &mut actions);
+            show_brush_colors(ui, &mut actions);
             show_canvas(ui, &mut ctx, &mut gizmos, &images, window);
+            show_shirt_colors(ui, &mut actions);
         });
 
         show_brushes(ui, &mut ctx, &mut actions);
@@ -181,37 +177,66 @@ fn show_ui(
     });
 }
 
-fn show_colors(ui: &mut egui::Ui, update_brush: &mut EventWriter<UiAction>) {
+fn show_brush_colors(ui: &mut egui::Ui, actions: &mut EventWriter<UiAction>) {
     ui.vertical(|ui| {
         let eraser = ui.button("Eraser").clicked();
         if eraser {
-            update_brush.send(UiAction::Color(egui::Color32::TRANSPARENT));
+            actions.send(UiAction::BrushColor(egui::Color32::TRANSPARENT));
         }
-        egui::Grid::new("colors").num_columns(2).show(ui, |ui| {
-            for (i, color) in BRUSH_COLORS.into_iter().enumerate() {
-                let (rect, resp) =
-                    ui.allocate_exact_size(egui::Vec2::splat(10.0), egui::Sense::click());
-                let painter = ui.painter_at(rect);
-                painter.rect_filled(rect, 0.0, color);
-                if resp.clicked() {
-                    update_brush.send(UiAction::Color(color));
+        egui::Grid::new("brush-colors")
+            .num_columns(2)
+            .show(ui, |ui| {
+                for (i, color) in BRUSH_COLORS.into_iter().enumerate() {
+                    let (rect, resp) =
+                        ui.allocate_exact_size(egui::Vec2::splat(10.0), egui::Sense::click());
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 0.0, color);
+                    if resp.clicked() {
+                        actions.send(UiAction::BrushColor(color));
+                    }
+                    if i % 2 == 1 {
+                        ui.end_row();
+                    }
                 }
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
+            });
     });
 }
 
-fn send_image(mut client: ResMut<QuinnetClient>, comm: ResMut<MainWorldComm>) {
-    let Some(data) = comm.receiver.try_recv().ok() else {
+fn show_shirt_colors(ui: &mut egui::Ui, actions: &mut EventWriter<UiAction>) {
+    ui.vertical(|ui| {
+        ui.label("Shirt color");
+        egui::Grid::new("shirt-colors")
+            .num_columns(2)
+            .show(ui, |ui| {
+                for (i, color) in BRUSH_COLORS.into_iter().enumerate() {
+                    let (rect, resp) =
+                        ui.allocate_exact_size(egui::Vec2::splat(10.0), egui::Sense::click());
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 0.0, color);
+                    if resp.clicked() {
+                        actions.send(UiAction::ShirtColor(color));
+                    }
+                    if i % 2 == 1 {
+                        ui.end_row();
+                    }
+                }
+            });
+    });
+}
+
+fn send_image(
+    mut client: ResMut<QuinnetClient>,
+    comm: Res<save_image::MainWorldComm>,
+    ctx: Res<Context>,
+) {
+    let Some(drawing) = comm.receiver.try_recv().ok() else {
         return;
     };
+    let bg_color = [ctx.bg_color.r(), ctx.bg_color.g(), ctx.bg_color.b()];
 
     client
         .connection_mut()
-        .send_message(ClientMsgComm::SubmitDrawing(Drawing { data }).root())
+        .send_message(ClientMsgComm::SubmitDrawing(Drawing { drawing, bg_color }).root())
         .ok();
 }
 
@@ -234,7 +259,7 @@ fn show_brushes(
                 };
                 painter.circle_filled(rect.center(), size / 2.0, color);
                 if resp.clicked() {
-                    update_brush.send(UiAction::Size(size));
+                    update_brush.send(UiAction::BrushSize(size));
                 }
             }
         });
@@ -254,11 +279,7 @@ fn show_canvas(
 
     let image_id = images.image_id(&ctx.image_handle).unwrap();
     let painter = ui.painter_at(padded_rect);
-    painter.rect_stroke(
-        padded_rect.shrink(IMG_PADDING_HALF_SIZE),
-        0.0,
-        egui::Stroke::new(IMG_PADDING, egui::Color32::BLACK),
-    );
+    painter.rect_filled(padded_rect, 0.0, ctx.bg_color);
     let paint = resp.is_pointer_button_down_on();
 
     let img_rect = padded_rect.shrink(IMG_PADDING);
@@ -320,16 +341,17 @@ fn execute_actions(
     mut ctx: ResMut<Context>,
     mut actions: EventReader<UiAction>,
     mut gizmo_configs: ResMut<GizmoConfigStore>,
-    comm: ResMut<MainWorldComm>,
+    comm: ResMut<save_image::MainWorldComm>,
 ) {
     for action in actions.read() {
         match action {
-            UiAction::Size(size) => {
+            UiAction::BrushSize(size) => {
                 let config = gizmo_configs.config_mut::<DefaultGizmoConfigGroup>().0;
                 ctx.brush_size = *size;
                 config.line_width = size - 1.0;
             }
-            UiAction::Color(color) => ctx.brush_color = *color,
+            UiAction::BrushColor(color) => ctx.brush_color = *color,
+            UiAction::ShirtColor(color) => ctx.bg_color = *color,
             UiAction::Submit => {
                 comm.sender.try_send(ctx.image_handle.clone()).ok();
             }
@@ -337,99 +359,123 @@ fn execute_actions(
     }
 }
 
-pub struct SaveDrawingPlugin;
+mod save_image {
+    use super::IMG_SIZE;
 
-impl Plugin for SaveDrawingPlugin {
-    fn build(&self, app: &mut App) {
-        let (m_s, r_r) = crossbeam_channel::unbounded();
-        let (r_s, m_r) = crossbeam_channel::unbounded();
-
-        app.insert_resource(MainWorldComm {
-            receiver: m_r,
-            sender: m_s,
-        });
-
-        let rapp = app.sub_app_mut(RenderApp);
-        rapp.insert_resource(RenderWorldComm {
-            sender: r_s,
-            receiver: r_r,
-        });
-        rapp.add_systems(Render, save_drawing);
-    }
-}
-
-#[derive(Resource)]
-pub struct MainWorldComm {
-    pub receiver: Receiver<Vec<u8>>,
-    pub sender: Sender<Handle<Image>>,
-}
-
-#[derive(Resource)]
-pub struct RenderWorldComm {
-    pub sender: Sender<Vec<u8>>,
-    pub receiver: Receiver<Handle<Image>>,
-}
-
-fn save_drawing(
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-    assets: Res<RenderAssets<GpuImage>>,
-    comm: Res<RenderWorldComm>,
-) {
-    // Wait for request
-    let Some(handle) = comm.receiver.try_recv().ok() else {
-        return;
-    };
-
-    // Prepare destination buffer, hardcoded image size of 512x512 in Bgra8UnormSrgb
-    let image = assets.get(&handle).expect("Missing asset");
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-    let buffer = device.create_buffer(&BufferDescriptor {
-        label: Some("drawing-transfer-buffer"),
-        size: IMG_SIZE as u64 * IMG_SIZE as u64 * 4,
-        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-
-    // Request copy
-    encoder.copy_texture_to_buffer(
-        image.texture.as_image_copy(),
-        ImageCopyBuffer {
-            buffer: &buffer,
-            layout: ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(IMG_SIZE as u32 * 4),
-                rows_per_image: None,
+    use bevy::{
+        prelude::*,
+        render::{
+            {
+                render_asset::RenderAssets,
+                render_resource::{
+                    BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d,
+                    ImageCopyBuffer, ImageDataLayout, MapMode,
+                },
             },
+            {
+                renderer::{RenderDevice, RenderQueue},
+                texture::GpuImage,
+            },
+            {Render, RenderApp},
         },
-        Extent3d {
-            width: image.size.x,
-            height: image.size.y,
-            ..default()
-        },
-    );
-    queue.submit([encoder.finish()]);
-
-    // Wait for copy to finish
-    let sender = comm.sender.clone();
-    let finish = async move {
-        let (tx, rx) = async_channel::bounded(1);
-        // Copy data from GPU to CPU
-        let buffer_slice = buffer.slice(..);
-        buffer_slice.map_async(MapMode::Read, move |result| {
-            let err = result.err();
-            if err.is_some() {
-                panic!("{}", err.unwrap().to_string());
-            }
-            tx.try_send(()).unwrap();
-        });
-        rx.recv().await.unwrap();
-        let data = buffer_slice.get_mapped_range();
-        let result = Vec::from(&*data);
-        drop(data);
-        drop(buffer);
-        sender.send(result).ok();
+        tasks::AsyncComputeTaskPool,
     };
+    use crossbeam_channel::{Receiver, Sender};
 
-    AsyncComputeTaskPool::get().spawn(finish).detach();
+    pub struct SaveDrawingPlugin;
+
+    impl Plugin for SaveDrawingPlugin {
+        fn build(&self, app: &mut App) {
+            let (m_s, r_r) = crossbeam_channel::unbounded();
+            let (r_s, m_r) = crossbeam_channel::unbounded();
+
+            app.insert_resource(MainWorldComm {
+                receiver: m_r,
+                sender: m_s,
+            });
+
+            let render_app = app.sub_app_mut(RenderApp);
+            render_app.insert_resource(RenderWorldComm {
+                sender: r_s,
+                receiver: r_r,
+            });
+            render_app.add_systems(Render, save_drawing);
+        }
+    }
+
+    #[derive(Resource)]
+    pub struct MainWorldComm {
+        pub receiver: Receiver<Vec<u8>>,
+        pub sender: Sender<Handle<Image>>,
+    }
+
+    #[derive(Resource)]
+    pub struct RenderWorldComm {
+        pub sender: Sender<Vec<u8>>,
+        pub receiver: Receiver<Handle<Image>>,
+    }
+
+    pub(crate) fn save_drawing(
+        device: Res<RenderDevice>,
+        queue: Res<RenderQueue>,
+        assets: Res<RenderAssets<GpuImage>>,
+        comm: Res<RenderWorldComm>,
+    ) {
+        // Wait for request
+        let Some(handle) = comm.receiver.try_recv().ok() else {
+            return;
+        };
+
+        // Prepare destination buffer, hardcoded image size of 512x512 in Bgra8UnormSrgb
+        let image = assets.get(&handle).expect("Missing asset");
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("drawing-transfer-buffer"),
+            size: IMG_SIZE as u64 * IMG_SIZE as u64 * 4,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Request copy
+        encoder.copy_texture_to_buffer(
+            image.texture.as_image_copy(),
+            ImageCopyBuffer {
+                buffer: &buffer,
+                layout: ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(IMG_SIZE as u32 * 4),
+                    rows_per_image: None,
+                },
+            },
+            Extent3d {
+                width: image.size.x,
+                height: image.size.y,
+                ..default()
+            },
+        );
+        queue.submit([encoder.finish()]);
+
+        // Wait for copy to finish
+        let sender = comm.sender.clone();
+        let finish = async move {
+            let (tx, rx) = async_channel::bounded(1);
+            // Copy data from GPU to CPU
+            let buffer_slice = buffer.slice(..);
+            buffer_slice.map_async(MapMode::Read, move |result| {
+                let err = result.err();
+                if err.is_some() {
+                    panic!("{}", err.unwrap().to_string());
+                }
+                tx.try_send(()).unwrap();
+            });
+            rx.recv().await.unwrap();
+            let data = buffer_slice.get_mapped_range();
+            let result = Vec::from(&*data);
+            drop(data);
+            drop(buffer);
+            sender.send(result).ok();
+        };
+
+        AsyncComputeTaskPool::get().spawn(finish).detach();
+    }
 }
