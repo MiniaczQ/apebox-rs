@@ -326,7 +326,6 @@ fn update_draw(
     let out_of_time = context.started + config.duration + game_config.extra_time < time.elapsed();
     let everyone_submitted = context.submited.len() >= users.iter_active().count();
     if out_of_time || everyone_submitted {
-        info!("{:?} {:?}", context.started, time.elapsed());
         progress.send(ProgressGame);
     }
 }

@@ -51,8 +51,6 @@ impl Context {
         let mut rng = rand::thread_rng();
         let font = CustomFont(rng.gen_range(0..FONTS.len()));
 
-        info!("Using font: {:?}", font);
-
         Context {
             font,
             prompt: String::new(),
