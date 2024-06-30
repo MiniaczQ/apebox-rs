@@ -16,41 +16,51 @@ use common::{
 
 use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
 
-pub struct VotePlugin;
+pub struct ModePlugin;
 
-impl Plugin for VotePlugin {
+impl Plugin for ModePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<VoteData>();
+        app.add_event::<UiAction>();
         app.add_reentrant_statebound(
             GameState::Vote,
             setup,
             teardown,
-            update.in_set(GameSystemOdering::StateLogic),
+            (show_ui, execute_actions)
+                .chain()
+                .in_set(GameSystemOdering::StateLogic),
         );
     }
 }
 
-#[derive(Event)]
-pub struct VoteData {
+#[derive(Resource, Clone)]
+pub struct Data {
     pub duration: Duration,
     pub combination1: (Index, Drawing, Prompt),
     pub combination2: (Index, Drawing, Prompt),
 }
 
 #[derive(Resource)]
-pub struct VoteContext {
+pub struct Context {
     pub duration: Duration,
     pub combination1: (Index, Handle<Image>, String),
     pub combination2: (Index, Handle<Image>, String),
 }
 
-pub fn setup(
+#[derive(Event)]
+enum UiAction {
+    Vote1,
+    Vote2,
+}
+
+fn setup(
     mut commands: Commands,
+    mut actions: ResMut<Events<UiAction>>,
     mut images: ResMut<Assets<Image>>,
     mut egui_user_textures: ResMut<EguiUserTextures>,
-    mut data: ResMut<Events<VoteData>>,
+    data: Res<Data>,
 ) {
-    let data = data.drain().last().unwrap();
+    actions.clear();
+    let data = data.clone();
 
     let size = Extent3d {
         width: 512,
@@ -102,69 +112,86 @@ pub fn setup(
     egui_user_textures.add_image(image_handle.clone_weak());
     let combination2 = (data.combination2.0, image_handle, data.combination2.2.data);
 
-    commands.insert_resource(VoteContext {
+    commands.insert_resource(Context {
         duration: data.duration,
         combination1,
         combination2,
     });
 }
 
-pub fn update(
-    mut ctx: Query<&mut EguiContext>,
+fn show_ui(
+    mut ui_ctx: Query<&mut EguiContext>,
+    mut actions: EventWriter<UiAction>,
     images: Res<EguiUserTextures>,
-    vote_ctx: ResMut<VoteContext>,
-    mut client: ResMut<QuinnetClient>,
+    ctx: ResMut<Context>,
 ) {
-    let mut ctx = ctx.single_mut();
+    let mut ui_ctx = ui_ctx.single_mut();
 
-    root_element(ctx.get_mut(), |ui| {
+    root_element(ui_ctx.get_mut(), |ui| {
         ui.label("Vote");
 
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                let image_id = images.image_id(&vote_ctx.combination1.1).unwrap();
+                let image_id = images.image_id(&ctx.combination1.1).unwrap();
                 ui.image(egui::load::SizedTexture::new(
                     image_id,
                     egui::vec2(300., 300.),
                 ));
-                ui.label(&vote_ctx.combination1.2);
-                let submit_vote = ui.button("Vote").clicked();
-                if submit_vote {
-                    client
-                        .connection_mut()
-                        .send_message(
-                            ClientMsgComm::SubmitVote(Vote {
-                                combination: vote_ctx.combination1.0,
-                            })
-                            .root(),
-                        )
-                        .ok();
+                ui.label(&ctx.combination1.2);
+                if ui.button("Vote").clicked() {
+                    actions.send(UiAction::Vote1);
                 }
             });
             ui.vertical(|ui| {
-                let image_id = images.image_id(&vote_ctx.combination2.1).unwrap();
+                let image_id = images.image_id(&ctx.combination2.1).unwrap();
                 ui.image(egui::load::SizedTexture::new(
                     image_id,
                     egui::vec2(300., 300.),
                 ));
-                ui.label(&vote_ctx.combination2.2);
-                let submit_vote = ui.button("Vote").clicked();
-                if submit_vote {
-                    client
-                        .connection_mut()
-                        .send_message(
-                            ClientMsgComm::SubmitVote(Vote {
-                                combination: vote_ctx.combination2.0,
-                            })
-                            .root(),
-                        )
-                        .ok();
+                ui.label(&ctx.combination2.2);
+                if ui.button("Vote").clicked() {
+                    actions.send(UiAction::Vote2);
                 }
             });
         });
     });
 }
 
-pub fn teardown(mut commands: Commands) {
-    commands.remove_resource::<VoteContext>();
+fn execute_actions(
+    mut actions: ResMut<Events<UiAction>>,
+    mut client: ResMut<QuinnetClient>,
+    ctx: ResMut<Context>,
+) {
+    for action in actions.drain() {
+        match action {
+            UiAction::Vote1 => {
+                client
+                    .connection_mut()
+                    .send_message(
+                        ClientMsgComm::SubmitVote(Vote {
+                            combination: ctx.combination2.0,
+                        })
+                        .root(),
+                    )
+                    .ok();
+            }
+            UiAction::Vote2 => {
+                client
+                    .connection_mut()
+                    .send_message(
+                        ClientMsgComm::SubmitVote(Vote {
+                            combination: ctx.combination2.0,
+                        })
+                        .root(),
+                    )
+                    .ok();
+            }
+        }
+    }
+}
+
+fn teardown(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
+    commands.remove_resource::<Data>();
+    commands.remove_resource::<Context>();
+    actions.clear();
 }

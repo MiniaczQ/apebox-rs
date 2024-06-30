@@ -16,29 +16,31 @@ use common::{
 
 use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
 
-pub struct CombinePlugin;
+pub struct ModePlugin;
 
-impl Plugin for CombinePlugin {
+impl Plugin for ModePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<CombineData>();
+        app.add_event::<UiAction>();
         app.add_reentrant_statebound(
             GameState::Combine,
             setup,
             teardown,
-            draw_ui.in_set(GameSystemOdering::StateLogic),
+            (draw_ui, execute_actions)
+                .chain()
+                .in_set(GameSystemOdering::StateLogic),
         );
     }
 }
 
-#[derive(Event)]
-pub struct CombineData {
+#[derive(Resource, Clone)]
+pub struct Data {
     pub duration: Duration,
     pub drawings: Vec<(Index, Drawing)>,
     pub prompts: Vec<(Index, Prompt)>,
 }
 
 #[derive(Resource)]
-pub struct CombineContext {
+pub struct Context {
     pub duration: Duration,
     pub drawings: Vec<(Index, Handle<Image>)>,
     pub drawing_ptr: usize,
@@ -46,13 +48,24 @@ pub struct CombineContext {
     pub prompt_ptr: usize,
 }
 
-pub fn setup(
+#[derive(Event)]
+enum UiAction {
+    NextImage,
+    PreviousImage,
+    NextPrompt,
+    PreviousPrompt,
+    Submit,
+}
+
+fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut egui_user_textures: ResMut<EguiUserTextures>,
-    mut data: ResMut<Events<CombineData>>,
+    mut textures: ResMut<EguiUserTextures>,
+    mut actions: ResMut<Events<UiAction>>,
+    data: Res<Data>,
 ) {
-    let data = data.drain().last().unwrap();
+    actions.clear();
+    let data = data.clone();
 
     let mut drawings = Vec::with_capacity(data.drawings.len());
     for drawing in data.drawings {
@@ -78,13 +91,13 @@ pub fn setup(
             ..default()
         };
         let image_handle = images.add(image);
-        egui_user_textures.add_image(image_handle.clone_weak());
+        textures.add_image(image_handle.clone_weak());
         drawings.push((drawing.0, image_handle));
     }
 
     let prompts = data.prompts;
 
-    commands.insert_resource(CombineContext {
+    commands.insert_resource(Context {
         duration: data.duration,
         drawings,
         prompts,
@@ -93,76 +106,87 @@ pub fn setup(
     });
 }
 
-enum UiAction {
-    NextImage,
-    PreviousImage,
-    NextPrompt,
-    PreviousPrompt,
-    Submit,
-}
-
-pub fn draw_ui(
-    mut ctx: Query<&mut EguiContext>,
+fn draw_ui(
+    mut ui_ctx: Query<&mut EguiContext>,
+    mut actions: EventWriter<UiAction>,
     images: Res<EguiUserTextures>,
-    mut combine_ctx: ResMut<CombineContext>,
-    mut client: ResMut<QuinnetClient>,
+    ctx: Res<Context>,
 ) {
-    let mut ctx = ctx.single_mut();
+    let mut uictx = ui_ctx.single_mut();
 
-    root_element(ctx.get_mut(), |ui| {
+    root_element(uictx.get_mut(), |ui| {
         ui.label("Combine");
         egui::Grid::new("nav-buttons")
             .num_columns(3)
             .show(ui, |ui| {
-                let image_id = images
-                    .image_id(&combine_ctx.drawings[combine_ctx.drawing_ptr].1)
-                    .unwrap();
-                let prev_drawing = ui.button("<").clicked();
+                let image_id = images.image_id(&ctx.drawings[ctx.drawing_ptr].1).unwrap();
+                if ui.button("<--").clicked() {
+                    actions.send(UiAction::PreviousImage);
+                }
                 ui.image(egui::load::SizedTexture::new(
                     image_id,
                     egui::vec2(300., 300.),
                 ));
-                let next_drawing = ui.button(">").clicked();
+                if ui.button("-->").clicked() {
+                    actions.send(UiAction::NextImage);
+                }
                 ui.end_row();
 
-                let drawing_count = combine_ctx.drawings.len();
-                if next_drawing {
-                    combine_ctx.drawing_ptr = (combine_ctx.drawing_ptr + 1) % drawing_count;
-                } else if prev_drawing {
-                    combine_ctx.drawing_ptr =
-                        (combine_ctx.drawing_ptr + drawing_count - 1) % drawing_count;
+                let prompt = &ctx.prompts[ctx.prompt_ptr];
+                if ui.button("<--").clicked() {
+                    actions.send(UiAction::PreviousPrompt);
                 }
-
-                let prompt = &combine_ctx.prompts[combine_ctx.prompt_ptr];
-                let prev_prompt = ui.button("<").clicked();
                 ui.label(&prompt.1.data);
-                let next_prompt = ui.button(">").clicked();
-                ui.end_row();
-
-                let prompt_count = combine_ctx.prompts.len();
-                if next_prompt {
-                    combine_ctx.prompt_ptr = (combine_ctx.prompt_ptr + 1) % prompt_count;
-                } else if prev_prompt {
-                    combine_ctx.prompt_ptr =
-                        (combine_ctx.prompt_ptr + prompt_count - 1) % prompt_count;
+                if ui.button("-->").clicked() {
+                    actions.send(UiAction::NextPrompt);
                 }
+                ui.end_row();
             });
-        let submit = ui.button("Submit").clicked();
-        if submit {
-            client
-                .connection_mut()
-                .send_message(
-                    ClientMsgComm::SubmitCombination(Combination {
-                        drawing: combine_ctx.drawings[combine_ctx.drawing_ptr].0,
-                        prompt: combine_ctx.prompts[combine_ctx.prompt_ptr].0,
-                    })
-                    .root(),
-                )
-                .ok();
+        if ui.button("Submit").clicked() {
+            actions.send(UiAction::Submit);
         }
     });
 }
 
-pub fn teardown(mut commands: Commands) {
-    commands.remove_resource::<CombineContext>();
+fn execute_actions(
+    mut actions: ResMut<Events<UiAction>>,
+    mut ctx: ResMut<Context>,
+    mut client: ResMut<QuinnetClient>,
+) {
+    for action in actions.drain() {
+        let drawing_count = ctx.drawings.len();
+        let prompt_count = ctx.prompts.len();
+        match action {
+            UiAction::NextImage => {
+                ctx.drawing_ptr = (ctx.drawing_ptr + 1) % drawing_count;
+            }
+            UiAction::PreviousImage => {
+                ctx.drawing_ptr = (ctx.drawing_ptr + drawing_count - 1) % drawing_count;
+            }
+            UiAction::NextPrompt => {
+                ctx.prompt_ptr = (ctx.prompt_ptr + 1) % prompt_count;
+            }
+            UiAction::PreviousPrompt => {
+                ctx.prompt_ptr = (ctx.prompt_ptr + prompt_count - 1) % prompt_count;
+            }
+            UiAction::Submit => {
+                client
+                    .connection_mut()
+                    .send_message(
+                        ClientMsgComm::SubmitCombination(Combination {
+                            drawing: ctx.drawings[ctx.drawing_ptr].0,
+                            prompt: ctx.prompts[ctx.prompt_ptr].0,
+                        })
+                        .root(),
+                    )
+                    .ok();
+            }
+        }
+    }
+}
+
+fn teardown(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
+    commands.remove_resource::<Data>();
+    commands.remove_resource::<Context>();
+    actions.clear();
 }

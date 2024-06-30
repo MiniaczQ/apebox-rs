@@ -14,17 +14,14 @@ use common::protocol::ServerMsgRoot;
 
 use crate::{
     states::{ClientState, GameState, MenuState},
-    ui::game::{combine::CombineData, draw::DrawData, prompt::PromptData, vote::VoteData},
+    ui::game::{combine, draw, prompt, vote},
     ConnectionData,
 };
 
 pub fn handle_server_messages(
+    mut commands: Commands,
     mut client: ResMut<QuinnetClient>,
     mut next: ResMut<NextState<GameState>>,
-    mut draw_data: EventWriter<DrawData>,
-    mut prompt_data: EventWriter<PromptData>,
-    mut combine_data: EventWriter<CombineData>,
-    mut vote_data: EventWriter<VoteData>,
 ) {
     let Some(connection) = client.get_connection_mut() else {
         return;
@@ -33,11 +30,11 @@ pub fn handle_server_messages(
         match message {
             ServerMsgRoot::Draw { duration } => {
                 next.set(GameState::Draw);
-                draw_data.send(DrawData { duration });
+                commands.insert_resource(draw::Data { duration });
             }
             ServerMsgRoot::Prompt { duration } => {
                 next.set(GameState::Prompt);
-                prompt_data.send(PromptData { duration });
+                commands.insert_resource(prompt::Data { duration });
             }
             ServerMsgRoot::Combine {
                 duration,
@@ -45,7 +42,7 @@ pub fn handle_server_messages(
                 prompts,
             } => {
                 next.set(GameState::Combine);
-                combine_data.send(CombineData {
+                commands.insert_resource(combine::Data {
                     duration,
                     drawings,
                     prompts,
@@ -57,7 +54,7 @@ pub fn handle_server_messages(
                 combination2,
             } => {
                 next.set(GameState::Vote);
-                vote_data.send(VoteData {
+                commands.insert_resource(vote::Data {
                     duration,
                     combination1,
                     combination2,

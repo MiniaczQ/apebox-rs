@@ -5,15 +5,16 @@ pub mod vote;
 pub mod wait;
 
 use bevy::prelude::*;
-use combine::CombinePlugin;
-use draw::DrawPlugin;
-use prompt::PromptPlugin;
-use vote::VotePlugin;
 
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((DrawPlugin, PromptPlugin, CombinePlugin, VotePlugin));
+        app.add_plugins((
+            draw::ModePlugin,
+            prompt::ModePlugin,
+            combine::ModePlugin,
+            vote::ModePlugin,
+        ));
     }
 }

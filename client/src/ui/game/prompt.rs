@@ -7,58 +7,82 @@ use common::{app::AppExt, game::Prompt, protocol::ClientMsgComm};
 
 use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
 
-pub struct PromptPlugin;
+pub struct ModePlugin;
 
-impl Plugin for PromptPlugin {
+impl Plugin for ModePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<PromptData>();
+        app.add_event::<UiAction>();
         app.add_reentrant_statebound(
             GameState::Prompt,
             setup,
             teardown,
-            update.in_set(GameSystemOdering::StateLogic),
+            (show_ui, execute_actions)
+                .chain()
+                .in_set(GameSystemOdering::StateLogic),
         );
     }
 }
 
-#[derive(Event)]
-pub struct PromptData {
+#[derive(Resource, Clone)]
+pub struct Data {
     pub duration: Duration,
 }
 
 #[derive(Resource)]
-pub struct PromptContext {
+pub struct Context {
     pub prompt: String,
 }
 
-pub fn setup(mut commands: Commands) {
-    commands.insert_resource(PromptContext {
+#[derive(Event)]
+enum UiAction {
+    Submit,
+}
+
+fn setup(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
+    actions.clear();
+
+    commands.insert_resource(Context {
         prompt: String::new(),
     });
 }
 
-pub fn teardown(mut commands: Commands) {
-    commands.remove_resource::<PromptContext>();
-}
-
-pub fn update(
-    mut ctx: Query<&mut EguiContext>,
-    mut prompt_ctx: ResMut<PromptContext>,
-    mut client: ResMut<QuinnetClient>,
+fn show_ui(
+    mut ui_ctx: Query<&mut EguiContext>,
+    mut ctx: ResMut<Context>,
+    mut actions: EventWriter<UiAction>,
 ) {
-    let mut ctx = ctx.single_mut();
+    let mut ui_ctx = ui_ctx.single_mut();
 
-    root_element(ctx.get_mut(), |ui| {
+    root_element(ui_ctx.get_mut(), |ui| {
         ui.label("Prompt");
-        ui.text_edit_singleline(&mut prompt_ctx.prompt);
+        ui.text_edit_singleline(&mut ctx.prompt);
 
-        let submit = ui.button("Submit").clicked();
-        if submit {
-            let data = std::mem::take(&mut prompt_ctx.prompt);
-            client
-                .connection_mut()
-                .send_message(ClientMsgComm::SubmitPrompt(Prompt { data }).root())
-                .ok();
+        if ui.button("Submit").clicked() {
+            actions.send(UiAction::Submit);
         }
     });
+}
+
+fn execute_actions(
+    mut actions: ResMut<Events<UiAction>>,
+    mut ctx: ResMut<Context>,
+    mut client: ResMut<QuinnetClient>,
+) {
+    for action in actions.drain() {
+        match action {
+            UiAction::Submit => {
+                let data = std::mem::take(&mut ctx.prompt);
+                client
+                    .connection_mut()
+                    .send_message(ClientMsgComm::SubmitPrompt(Prompt { data }).root())
+                    .ok();
+            }
+        }
+    }
+}
+
+fn teardown(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
+    commands.remove_resource::<Data>();
+    commands.remove_resource::<Context>();
+    actions.clear();
 }

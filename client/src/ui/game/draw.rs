@@ -22,14 +22,17 @@ use common::{app::AppExt, game::Drawing, protocol::ClientMsgComm};
 use crossbeam_channel::{Receiver, Sender};
 use egui::Stroke;
 
-use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+use crate::{
+    states::GameState,
+    ui::{util::Scaler, widgets::root_element},
+    GameSystemOdering,
+};
 
-pub struct DrawPlugin;
+pub struct ModePlugin;
 
-impl Plugin for DrawPlugin {
+impl Plugin for ModePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<DrawData>();
-        app.add_event::<UpdateBrush>();
+        app.add_event::<UiAction>();
         app.add_plugins(SaveDrawingPlugin);
         app.insert_gizmo_config(
             DefaultGizmoConfigGroup,
@@ -43,7 +46,7 @@ impl Plugin for DrawPlugin {
             GameState::Draw,
             setup,
             teardown,
-            (resize_brush, update, send_image)
+            (execute_actions, show_ui, send_image)
                 .chain()
                 .in_set(GameSystemOdering::StateLogic),
         );
@@ -68,13 +71,13 @@ const IMG_SIZE: f32 = 2.0 * IMG_HALF_SIZE;
 const IMG_PADDING_HALF_SIZE: f32 = 8.0;
 const IMG_PADDING: f32 = 2.0 * IMG_PADDING_HALF_SIZE;
 
-#[derive(Event)]
-pub struct DrawData {
+#[derive(Resource, Clone)]
+pub struct Data {
     pub duration: Duration,
 }
 
 #[derive(Resource)]
-pub struct DrawContext {
+pub struct Context {
     pub duration: Duration,
     pub image_handle: Handle<Image>,
     pub last_pos: Option<Vec2>,
@@ -82,14 +85,23 @@ pub struct DrawContext {
     pub brush_color: egui::Color32,
 }
 
-pub fn setup(
+#[derive(Event)]
+pub enum UiAction {
+    Size(f32),
+    Color(egui::Color32),
+    Submit,
+}
+
+fn setup(
     mut commands: Commands,
+    mut actions: ResMut<Events<UiAction>>,
     mut images: ResMut<Assets<Image>>,
-    mut egui_user_textures: ResMut<EguiUserTextures>,
-    mut resize: EventWriter<UpdateBrush>,
-    mut data: ResMut<Events<DrawData>>,
+    mut textures: ResMut<EguiUserTextures>,
+    data: Res<Data>,
 ) {
-    let data = data.drain().last().unwrap();
+    actions.clear();
+    let data = data.clone();
+
     let size = Extent3d {
         width: 512,
         height: 512,
@@ -113,7 +125,7 @@ pub fn setup(
     };
     image.resize(size);
     let image_handle = images.add(image);
-    egui_user_textures.add_image(image_handle.clone_weak());
+    textures.add_image(image_handle.clone_weak());
     commands.spawn((
         Camera2dBundle {
             camera: Camera {
@@ -126,69 +138,73 @@ pub fn setup(
         RenderLayers::layer(1),
         StateScoped(GameState::Draw),
     ));
-    commands.insert_resource(DrawContext {
+    commands.insert_resource(Context {
         duration: data.duration,
         image_handle,
         last_pos: None,
         brush_size: BRUSH_SIZES[2],
         brush_color: BRUSH_COLORS[0],
     });
-    resize.send(UpdateBrush::Size(BRUSH_SIZES[2]));
+    actions.send(UiAction::Size(BRUSH_SIZES[2]));
 }
 
-pub fn teardown(mut commands: Commands) {
-    commands.remove_resource::<DrawContext>();
+fn teardown(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
+    commands.remove_resource::<Data>();
+    commands.remove_resource::<Context>();
+    actions.clear();
 }
 
-pub fn update(
-    mut ctx: Query<&mut EguiContext>,
-    images: Res<EguiUserTextures>,
-    mut draw_ctx: ResMut<DrawContext>,
-    gizmos: Gizmos,
+fn show_ui(
+    mut ui_ctx: Query<&mut EguiContext>,
+    mut ctx: ResMut<Context>,
+    mut actions: EventWriter<UiAction>,
+    mut gizmos: Gizmos,
     window: Query<&Window>,
-    mut update_brush: EventWriter<UpdateBrush>,
-    comm: ResMut<MainWorldComm>,
+    images: Res<EguiUserTextures>,
 ) {
-    let mut ctx = ctx.single_mut();
+    let mut ui_ctx = ui_ctx.single_mut();
     let window = window.single();
 
-    root_element(ctx.get_mut(), |ui| {
+    root_element(ui_ctx.get_mut(), |ui| {
         ui.label("Draw");
 
         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                let eraser = ui.button("Eraser").clicked();
-                if eraser {
-                    update_brush.send(UpdateBrush::Color(egui::Color32::TRANSPARENT));
-                }
-                egui::Grid::new("colors").num_columns(2).show(ui, |ui| {
-                    for (i, color) in BRUSH_COLORS.into_iter().enumerate() {
-                        let (rect, resp) =
-                            ui.allocate_exact_size(egui::Vec2::splat(10.0), egui::Sense::click());
-                        let painter = ui.painter_at(rect);
-                        painter.rect_filled(rect, 0.0, color);
-                        if resp.clicked() {
-                            update_brush.send(UpdateBrush::Color(color));
-                        }
-                        if i % 2 == 1 {
-                            ui.end_row();
-                        }
-                    }
-                });
-            });
-            show_canvas(ui, &images, &mut draw_ctx, window, gizmos);
+            show_colors(ui, &mut actions);
+            show_canvas(ui, &mut ctx, &mut gizmos, &images, window);
         });
 
-        show_brushes(ui, &mut draw_ctx, update_brush);
+        show_brushes(ui, &mut ctx, &mut actions);
 
-        let submit = ui.button("Submit").clicked();
-        if submit {
-            comm.sender.try_send(draw_ctx.image_handle.clone()).ok();
+        if ui.button("Submit").clicked() {
+            actions.send(UiAction::Submit);
         }
     });
 }
 
-pub fn send_image(mut client: ResMut<QuinnetClient>, comm: ResMut<MainWorldComm>) {
+fn show_colors(ui: &mut egui::Ui, update_brush: &mut EventWriter<UiAction>) {
+    ui.vertical(|ui| {
+        let eraser = ui.button("Eraser").clicked();
+        if eraser {
+            update_brush.send(UiAction::Color(egui::Color32::TRANSPARENT));
+        }
+        egui::Grid::new("colors").num_columns(2).show(ui, |ui| {
+            for (i, color) in BRUSH_COLORS.into_iter().enumerate() {
+                let (rect, resp) =
+                    ui.allocate_exact_size(egui::Vec2::splat(10.0), egui::Sense::click());
+                let painter = ui.painter_at(rect);
+                painter.rect_filled(rect, 0.0, color);
+                if resp.clicked() {
+                    update_brush.send(UiAction::Color(color));
+                }
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
+    });
+}
+
+fn send_image(mut client: ResMut<QuinnetClient>, comm: ResMut<MainWorldComm>) {
     let Some(data) = comm.receiver.try_recv().ok() else {
         return;
     };
@@ -201,8 +217,8 @@ pub fn send_image(mut client: ResMut<QuinnetClient>, comm: ResMut<MainWorldComm>
 
 fn show_brushes(
     ui: &mut egui::Ui,
-    draw_ctx: &mut DrawContext,
-    mut update_brush: EventWriter<UpdateBrush>,
+    draw_ctx: &mut Context,
+    update_brush: &mut EventWriter<UiAction>,
 ) {
     egui::Grid::new("brush-sizes")
         .num_columns(BRUSH_SIZES.len())
@@ -218,7 +234,7 @@ fn show_brushes(
                 };
                 painter.circle_filled(rect.center(), size / 2.0, color);
                 if resp.clicked() {
-                    update_brush.send(UpdateBrush::Size(size));
+                    update_brush.send(UiAction::Size(size));
                 }
             }
         });
@@ -226,17 +242,17 @@ fn show_brushes(
 
 fn show_canvas(
     ui: &mut egui::Ui,
+    ctx: &mut Context,
+    gizmos: &mut Gizmos<DefaultGizmoConfigGroup, ()>,
     images: &EguiUserTextures,
-    draw_ctx: &mut DrawContext,
     window: &Window,
-    mut gizmos: Gizmos<DefaultGizmoConfigGroup, ()>,
 ) {
     let (padded_rect, resp) = ui.allocate_exact_size(
         egui::Vec2::splat(IMG_SIZE + 2.0 * IMG_PADDING),
         egui::Sense::click_and_drag(),
     );
 
-    let image_id = images.image_id(&draw_ctx.image_handle).unwrap();
+    let image_id = images.image_id(&ctx.image_handle).unwrap();
     let painter = ui.painter_at(padded_rect);
     painter.rect_stroke(
         padded_rect.shrink(IMG_PADDING_HALF_SIZE),
@@ -254,7 +270,7 @@ fn show_canvas(
         .is_pointer_button_down_on();
     });
 
-    let rescaler = Rescaler::new(
+    let rescaler = Scaler::new(
         img_rect,
         egui::Rect::from_min_max(
             egui::pos2(-IMG_HALF_SIZE, IMG_HALF_SIZE),
@@ -263,36 +279,36 @@ fn show_canvas(
     );
 
     if let Some(current_pos) = window.cursor_position() {
-        let color = draw_ctx.brush_color;
+        let color = ctx.brush_color;
         let color = Color::srgba_u8(color.r(), color.g(), color.b(), color.a());
         if paint {
-            let current_pos = rescaler.rescale(current_pos);
+            let current_pos = rescaler.scale(current_pos);
             gizmos.ellipse_2d(current_pos, 0.0, Vec2::ONE, color);
             gizmos.ellipse_2d(current_pos, std::f32::consts::PI, Vec2::ONE, color);
 
-            if let Some(last_pos) = draw_ctx.last_pos {
+            if let Some(last_pos) = ctx.last_pos {
                 if let Some(dir) = (current_pos - last_pos).try_normalize() {
                     let side_offset = Vec2::new(dir.y, -dir.x);
                     gizmos.line_2d(last_pos - side_offset, current_pos - side_offset, color);
                     gizmos.line_2d(last_pos + side_offset, current_pos + side_offset, color);
-                    draw_ctx.last_pos = Some(current_pos);
+                    ctx.last_pos = Some(current_pos);
                 }
             } else {
-                draw_ctx.last_pos = Some(current_pos);
+                ctx.last_pos = Some(current_pos);
             }
-        } else if draw_ctx.last_pos.is_some() {
-            draw_ctx.last_pos = None;
+        } else if ctx.last_pos.is_some() {
+            ctx.last_pos = None;
         }
 
         let painter = ui.painter_at(padded_rect);
         let current_pos = egui::pos2(current_pos.x, current_pos.y);
-        let mut color = draw_ctx.brush_color;
+        let mut color = ctx.brush_color;
         if color.a() == 0 {
             color = egui::Color32::WHITE;
         }
         painter.circle_stroke(
             current_pos,
-            draw_ctx.brush_size / 2.0 + 3.0,
+            ctx.brush_size / 2.0 + 3.0,
             Stroke::new(1.0, color),
         );
     }
@@ -300,57 +316,24 @@ fn show_canvas(
     ui.advance_cursor_after_rect(padded_rect);
 }
 
-#[derive(Event)]
-pub enum UpdateBrush {
-    Size(f32),
-    Color(egui::Color32),
-}
-
-pub fn resize_brush(
-    mut events: EventReader<UpdateBrush>,
+fn execute_actions(
+    mut ctx: ResMut<Context>,
+    mut actions: EventReader<UiAction>,
     mut gizmo_configs: ResMut<GizmoConfigStore>,
-    mut draw_ctx: ResMut<DrawContext>,
+    comm: ResMut<MainWorldComm>,
 ) {
-    for event in events.read() {
-        match event {
-            UpdateBrush::Size(size) => {
+    for action in actions.read() {
+        match action {
+            UiAction::Size(size) => {
                 let config = gizmo_configs.config_mut::<DefaultGizmoConfigGroup>().0;
-                draw_ctx.brush_size = *size;
+                ctx.brush_size = *size;
                 config.line_width = size - 1.0;
             }
-            UpdateBrush::Color(color) => draw_ctx.brush_color = *color,
+            UiAction::Color(color) => ctx.brush_color = *color,
+            UiAction::Submit => {
+                comm.sender.try_send(ctx.image_handle.clone()).ok();
+            }
         }
-    }
-}
-
-/// Scales a point from one rectangular space to another.
-struct Rescaler {
-    source_size: egui::Vec2,
-    source_min: egui::Pos2,
-    destination_size: egui::Vec2,
-    destination_min: egui::Pos2,
-}
-
-impl Rescaler {
-    pub fn new(source: egui::Rect, destination: egui::Rect) -> Self {
-        Self {
-            source_size: source.size(),
-            source_min: source.min,
-            destination_size: destination.size(),
-            destination_min: destination.min,
-        }
-    }
-
-    fn rescale(&self, position: Vec2) -> Vec2 {
-        let normalized_position = (
-            (position.x - self.source_min.x) / self.source_size.x,
-            (position.y - self.source_min.y) / self.source_size.y,
-        );
-
-        Vec2::new(
-            normalized_position.0 * self.destination_size.x + self.destination_min.x,
-            normalized_position.1 * self.destination_size.y + self.destination_min.y,
-        )
     }
 }
 
@@ -387,7 +370,7 @@ pub struct RenderWorldComm {
     pub receiver: Receiver<Handle<Image>>,
 }
 
-pub fn save_drawing(
+fn save_drawing(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     assets: Res<RenderAssets<GpuImage>>,

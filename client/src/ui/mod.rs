@@ -1,6 +1,7 @@
 pub mod game;
 pub mod menu;
 pub mod widgets;
+pub mod util;
 
 use bevy::prelude::*;
 use game::GamePlugin;

@@ -11,3 +11,6 @@ Open source clone of Tee K.O. game.
     - [ ] Escape Gizmos
     - [ ] Add eraser
     - [ ] Add undo/redo
+- [ ] Shirt colors
+- [ ] Shirt graphics
+- [ ] Fonts
