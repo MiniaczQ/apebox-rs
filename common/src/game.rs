@@ -20,9 +20,14 @@ impl Debug for Drawing {
     }
 }
 
+/// Custom font.
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CustomFont(pub usize);
+
 /// Single user prompt.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Prompt {
+    pub font: CustomFont,
     pub data: String,
 }
 

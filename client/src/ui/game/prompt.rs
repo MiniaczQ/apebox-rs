@@ -3,9 +3,21 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
 use bevy_quinnet::client::QuinnetClient;
-use common::{app::AppExt, game::Prompt, protocol::ClientMsgComm};
+use common::{
+    app::AppExt,
+    game::{CustomFont, Prompt},
+    protocol::ClientMsgComm,
+};
+use rand::Rng;
 
-use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+use crate::{
+    states::GameState,
+    ui::{
+        fonts::{IntoFontFamily, FONTS},
+        widgets::root_element,
+    },
+    GameSystemOdering,
+};
 
 pub struct ModePlugin;
 
@@ -30,7 +42,22 @@ pub struct Data {
 
 #[derive(Resource)]
 pub struct Context {
+    pub font: CustomFont,
     pub prompt: String,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        let mut rng = rand::thread_rng();
+        let font = CustomFont(rng.gen_range(0..FONTS.len()));
+
+        info!("Using font: {:?}", font);
+
+        Context {
+            font,
+            prompt: String::new(),
+        }
+    }
 }
 
 #[derive(Event)]
@@ -41,9 +68,7 @@ enum UiAction {
 fn setup(mut commands: Commands, mut actions: ResMut<Events<UiAction>>) {
     actions.clear();
 
-    commands.insert_resource(Context {
-        prompt: String::new(),
-    });
+    commands.insert_resource(Context::new());
 }
 
 fn show_ui(
@@ -55,7 +80,9 @@ fn show_ui(
 
     root_element(ui_ctx.get_mut(), |ui| {
         ui.label("Prompt");
-        ui.text_edit_singleline(&mut ctx.prompt);
+
+        let font_id = ctx.font.into_font_id();
+        ui.add(egui::TextEdit::singleline(&mut ctx.prompt).font(font_id));
 
         if ui.button("Submit").clicked() {
             actions.send(UiAction::Submit);
@@ -71,10 +98,17 @@ fn execute_actions(
     for action in actions.drain() {
         match action {
             UiAction::Submit => {
-                let data = std::mem::take(&mut ctx.prompt);
+                let mut old_ctx = Context::new();
+                std::mem::swap(&mut *ctx, &mut old_ctx);
                 client
                     .connection_mut()
-                    .send_message(ClientMsgComm::SubmitPrompt(Prompt { data }).root())
+                    .send_message(
+                        ClientMsgComm::SubmitPrompt(Prompt {
+                            data: old_ctx.prompt,
+                            font: old_ctx.font,
+                        })
+                        .root(),
+                    )
                     .ok();
             }
         }

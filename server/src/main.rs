@@ -259,7 +259,7 @@ fn start_lobby(
     mut progress: EventWriter<ProgressGame>,
 ) {
     // TODO: Wait for host start instead
-    if users.registered.len() >= 3 {
+    if users.registered.len() >= 1 {
         room_next.set(RoomState::Running);
         progress.send(ProgressGame);
     }

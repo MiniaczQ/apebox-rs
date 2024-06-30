@@ -13,8 +13,13 @@ use common::{
     game::{Combination, Drawing, Index, Prompt, IMG_SIZE},
     protocol::ClientMsgComm,
 };
+use egui::RichText;
 
-use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+use crate::{
+    states::GameState,
+    ui::{fonts::IntoFontFamily, widgets::root_element},
+    GameSystemOdering,
+};
 
 pub struct ModePlugin;
 
@@ -136,7 +141,7 @@ fn draw_ui(
                 if ui.button("<--").clicked() {
                     actions.send(UiAction::PreviousPrompt);
                 }
-                ui.label(&prompt.1.data);
+                ui.label(RichText::new(&prompt.1.data).font(prompt.1.font.into_font_id()));
                 if ui.button("-->").clicked() {
                     actions.send(UiAction::NextPrompt);
                 }

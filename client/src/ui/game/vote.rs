@@ -13,8 +13,13 @@ use common::{
     game::{Drawing, Index, Prompt, Vote},
     protocol::ClientMsgComm,
 };
+use egui::RichText;
 
-use crate::{states::GameState, ui::widgets::root_element, GameSystemOdering};
+use crate::{
+    states::GameState,
+    ui::{fonts::IntoFontFamily, widgets::root_element},
+    GameSystemOdering,
+};
 
 pub struct ModePlugin;
 
@@ -42,8 +47,8 @@ pub struct Data {
 #[derive(Resource)]
 pub struct Context {
     pub duration: Duration,
-    pub combination1: (Index, Handle<Image>, String),
-    pub combination2: (Index, Handle<Image>, String),
+    pub combination1: (Index, Handle<Image>, Prompt),
+    pub combination2: (Index, Handle<Image>, Prompt),
 }
 
 #[derive(Event)]
@@ -85,7 +90,7 @@ fn setup(
     };
     let image_handle = images.add(image);
     egui_user_textures.add_image(image_handle.clone_weak());
-    let combination1 = (data.combination1.0, image_handle, data.combination1.2.data);
+    let combination1 = (data.combination1.0, image_handle, data.combination1.2);
 
     let size = Extent3d {
         width: 512,
@@ -110,7 +115,7 @@ fn setup(
     };
     let image_handle = images.add(image);
     egui_user_textures.add_image(image_handle.clone_weak());
-    let combination2 = (data.combination2.0, image_handle, data.combination2.2.data);
+    let combination2 = (data.combination2.0, image_handle, data.combination2.2);
 
     commands.insert_resource(Context {
         duration: data.duration,
@@ -137,7 +142,11 @@ fn show_ui(
                     image_id,
                     egui::vec2(300., 300.),
                 ));
-                ui.label(&ctx.combination1.2);
+
+                ui.label(
+                    RichText::new(&ctx.combination1.2.data)
+                        .font(ctx.combination1.2.font.into_font_id()),
+                );
                 if ui.button("Vote").clicked() {
                     actions.send(UiAction::Vote1);
                 }
@@ -148,7 +157,10 @@ fn show_ui(
                     image_id,
                     egui::vec2(300., 300.),
                 ));
-                ui.label(&ctx.combination2.2);
+                ui.label(
+                    RichText::new(&ctx.combination2.2.data)
+                        .font(ctx.combination2.2.font.into_font_id()),
+                );
                 if ui.button("Vote").clicked() {
                     actions.send(UiAction::Vote2);
                 }

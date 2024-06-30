@@ -1,7 +1,8 @@
 use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
 use bevy::prelude::*;
 use bevy_egui::EguiContext;
-use egui::{FontData, FontFamily};
+use common::game::CustomFont;
+use egui::{FontData, FontFamily, FontId};
 use thiserror::Error;
 
 use crate::states::ClientState;
@@ -16,17 +17,33 @@ impl Plugin for FontsPlugin {
     }
 }
 
-const FONTS: [&str; 9] = [
+pub const FONTS: [&str; 6] = [
     "fonts/BLADRMF_.TTF",
-    "fonts/Dalmation-FREE.otf",
-    "fonts/Good Brush.ttf",
-    "fonts/Grunge.ttf",
+    //"fonts/Dalmation-FREE.otf",
+    //"fonts/Good Brush.ttf",
+    //"fonts/Grunge.ttf",
     "fonts/IHATCS__.TTF",
     "fonts/Lemon Shake Shake.ttf",
     "fonts/LittleKidsHandwriting-Regular.otf",
     "fonts/Next Bravo.ttf",
     "fonts/whitrabt.ttf",
 ];
+
+pub trait IntoFontFamily {
+    fn into_family(&self) -> FontFamily;
+    fn into_font_id(&self) -> FontId;
+}
+
+impl IntoFontFamily for CustomFont {
+    fn into_family(&self) -> FontFamily {
+        let font = FONTS[self.0];
+        FontFamily::Name(font.into())
+    }
+
+    fn into_font_id(&self) -> FontId {
+        FontId::new(24.0, self.into_family())
+    }
+}
 
 fn load_fonts(
     mut egui_fonts: ResMut<Assets<EguiFont>>,
