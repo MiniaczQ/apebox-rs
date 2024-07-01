@@ -63,7 +63,7 @@ pub fn teardown_server_online(mut commands: Commands, mut server: ResMut<Quinnet
 
 pub fn setup_room_running(mut commands: Commands, mut users: ResMut<Users>) {
     users.set_playing();
-    commands.insert_resource(GameConfig::short());
+    commands.insert_resource(GameConfig::long());
     commands.init_resource::<Indexer>();
 }
 

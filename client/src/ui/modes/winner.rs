@@ -94,7 +94,7 @@ fn show_ui(mut ui_ctx: Query<&mut EguiContext>, images: Res<EguiUserTextures>, c
     root_element(ui_ctx.get_mut(), |ui| {
         ui.label("Winner");
 
-        ui.horizontal(|ui| {
+        ui.vertical(|ui| {
             super::vote::show_combination(ui, &images, &ctx.drawing, &ctx.prompt, &ctx.shirt);
         });
     });
