@@ -29,7 +29,8 @@ pub struct CombineConfig {
 
 #[derive(Resource, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VoteConfig {
-    pub duration: Duration,
+    pub voting_duration: Duration,
+    pub winner_duration: Duration,
 }
 
 /// Game configuration.
@@ -45,7 +46,8 @@ impl GameConfig {
             extra_time: Duration::from_secs(3),
             states: vec![
                 StateData::Vote(VoteConfig {
-                    duration: Duration::from_secs(30),
+                    voting_duration: Duration::from_secs(10),
+                    winner_duration: Duration::from_secs(5),
                 }),
                 StateData::Combine(CombineConfig {
                     duration: Duration::from_secs(30),

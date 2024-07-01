@@ -46,4 +46,5 @@ pub enum GameState {
     Prompt,
     Combine,
     Vote,
+    Winner,
 }

@@ -3,6 +3,7 @@ pub mod draw;
 pub mod prompt;
 pub mod vote;
 pub mod wait;
+pub mod winner;
 
 use bevy::prelude::*;
 
@@ -15,6 +16,7 @@ impl Plugin for ModesPlugin {
             prompt::ModePlugin,
             combine::ModePlugin,
             vote::ModePlugin,
+            winner::ModePlugin,
         ));
     }
 }

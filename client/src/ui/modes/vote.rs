@@ -44,13 +44,11 @@ pub struct Data {
     pub combination2: (Index, Drawing, Prompt),
 }
 
-type Combination = (Index, (Handle<Image>, egui::Color32), Prompt);
-
 #[derive(Resource)]
 pub struct Context {
     pub duration: Duration,
-    pub combination1: Combination,
-    pub combination2: Combination,
+    pub combination1: (Index, (Handle<Image>, egui::Color32), Prompt),
+    pub combination2: (Index, (Handle<Image>, egui::Color32), Prompt),
     pub shirt: Handle<Image>,
 }
 
@@ -131,42 +129,42 @@ fn show_ui(
 
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                show_vote_option(
+                show_combination(
                     ui,
-                    &mut actions,
                     &images,
-                    &ctx.combination1,
+                    &ctx.combination1.1,
+                    &ctx.combination1.2,
                     &ctx.shirt,
-                    ctx.combination1.1 .1,
-                    UiAction::Vote1,
                 );
+                if ui.button("Vote").clicked() {
+                    actions.send(UiAction::Vote1);
+                }
             });
             ui.vertical(|ui| {
-                show_vote_option(
+                show_combination(
                     ui,
-                    &mut actions,
                     &images,
-                    &ctx.combination2,
+                    &ctx.combination2.1,
+                    &ctx.combination2.2,
                     &ctx.shirt,
-                    ctx.combination2.1 .1,
-                    UiAction::Vote2,
                 );
+                if ui.button("Vote").clicked() {
+                    actions.send(UiAction::Vote2);
+                }
             });
         });
     });
 }
 
-fn show_vote_option(
+pub fn show_combination(
     ui: &mut egui::Ui,
-    actions: &mut EventWriter<UiAction>,
     images: &EguiUserTextures,
-    combination: &Combination,
+    image: &(Handle<Image>, egui::Color32),
+    prompt: &Prompt,
     shirt: &Handle<Image>,
-    shirt_tint: egui::Color32,
-    action: UiAction,
 ) {
     let shirt = images.image_id(shirt).unwrap();
-    let drawing = images.image_id(&combination.1 .0).unwrap();
+    let drawing = images.image_id(&image.0).unwrap();
 
     let size = egui::vec2(512., 512.);
     let (rect, _) = ui.allocate_exact_size(
@@ -180,7 +178,7 @@ fn show_vote_option(
     ui.allocate_ui_at_rect(rect, |ui| {
         let image =
             egui::Image::from_texture(egui::load::SizedTexture::new(shirt, egui::vec2(512., 512.)))
-                .tint(shirt_tint);
+                .tint(image.1);
         ui.add(image);
     });
     ui.allocate_ui_at_rect(rect.shrink(128.0), |ui| {
@@ -195,8 +193,8 @@ fn show_vote_option(
         |ui| {
             ui.centered_and_justified(|ui| {
                 let label = egui::Label::new(
-                    RichText::new(&combination.2.text)
-                        .font(combination.2.font.get_font_id())
+                    RichText::new(&prompt.text)
+                        .font(prompt.font.get_font_id())
                         .color(egui::Color32::WHITE),
                 );
                 ui.add(label);
@@ -204,9 +202,6 @@ fn show_vote_option(
         },
     );
     ui.advance_cursor_after_rect(rect);
-    if ui.button("Vote").clicked() {
-        actions.send(action);
-    }
 }
 
 fn execute_actions(

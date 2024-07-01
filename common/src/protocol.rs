@@ -63,5 +63,10 @@ pub enum ServerMsgRoot {
         combination1: (Index, Drawing, Prompt),
         combination2: (Index, Drawing, Prompt),
     },
+    Winner {
+        duration: Duration,
+        drawing: Drawing,
+        prompt: Prompt,
+    },
     Wait,
 }

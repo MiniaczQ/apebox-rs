@@ -32,7 +32,11 @@ pub enum GameState {
 
 #[derive(SubStates, Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[source(GameState = GameState::Vote)]
-pub struct VoteState;
+pub enum VoteState {
+    #[default]
+    Voting,
+    Winner,
+}
 
 pub fn setup_server_offline(mut next: ResMut<NextState<ServerState>>) {
     next.set(ServerState::Running);

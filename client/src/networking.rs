@@ -14,7 +14,7 @@ use common::protocol::ServerMsgRoot;
 
 use crate::{
     states::{ClientState, GameState, MenuState},
-    ui::modes::{combine, draw, prompt, vote},
+    ui::modes::{combine, draw, prompt, vote, winner},
     ConnectionData,
 };
 
@@ -61,6 +61,18 @@ pub fn handle_server_messages(
                 });
             }
             ServerMsgRoot::Wait => next.set(GameState::Wait),
+            ServerMsgRoot::Winner {
+                duration,
+                drawing,
+                prompt,
+            } => {
+                next.set(GameState::Winner);
+                commands.insert_resource(winner::Data {
+                    duration,
+                    drawing,
+                    prompt,
+                });
+            }
         }
     }
 }
