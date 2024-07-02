@@ -6,7 +6,7 @@ use egui::{FontData, FontFamily, FontId};
 use thiserror::Error;
 
 use crate::{
-    loader::{ResourceBarrier, ResourceBarrierExtApp},
+    barrier::{AppExtBarrier, Barrier},
     states::InitialResources,
 };
 
@@ -16,7 +16,7 @@ impl Plugin for FontsPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<EguiFont>();
         app.init_asset_loader::<EguiFontLoader>();
-        app.add_resource_loader::<InitialResources, _>(load_fonts);
+        app.add_barrier_system::<InitialResources, _>(load_fonts);
     }
 }
 
@@ -49,7 +49,7 @@ fn load_fonts(
     mut egui_fonts: ResMut<Assets<EguiFont>>,
     mut local_handles: Local<Option<Vec<Handle<EguiFont>>>>,
     mut ui_ctx: Query<&mut EguiContext>,
-    mut barrier: ResourceBarrier<InitialResources>,
+    mut barrier: Barrier<InitialResources>,
     asset_server: Res<AssetServer>,
 ) {
     if barrier.is_completed() {

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::loader::ResourceBarrierMarker;
+use crate::barrier::BarrierMarker;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum ClientState {
@@ -15,10 +15,10 @@ pub enum ClientState {
 
 pub struct InitialResources;
 
-impl ResourceBarrierMarker for InitialResources {
+impl BarrierMarker for InitialResources {
     type State = ClientState;
 
-    fn loading_state() -> Self::State {
+    fn barrier_state() -> Self::State {
         ClientState::Loading
     }
 

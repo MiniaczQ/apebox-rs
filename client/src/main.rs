@@ -1,15 +1,15 @@
-pub mod loader;
+pub mod barrier;
 mod networking;
 mod states;
 mod ui;
 
 use std::{thread::sleep, time::Duration};
 
+use barrier::AppExtBarrier;
 use bevy::{dev_tools::states::log_transitions, prelude::*};
 use bevy_egui::EguiPlugin;
 use bevy_quinnet::client::{QuinnetClient, QuinnetClientPlugin};
 use common::{protocol::ClientMsgRoot, transitions::IdentityTransitionsPlugin};
-use loader::ResourceBarrierExtApp;
 use states::{ClientState, GameState, InitialResources, MenuState};
 use ui::ClientUiPlugin;
 
@@ -30,7 +30,7 @@ fn main() {
     app.add_sub_state::<MenuState>();
     app.add_sub_state::<GameState>();
     app.init_resource::<ConnectionData>();
-    app.add_resource_barrier::<InitialResources>();
+    app.register_barrier::<InitialResources>();
 
     app.configure_sets(
         Update,
