@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy_quinnet = { git = "https://github.com/Henauxg/bevy_quinnet", branch = "bevy-0.14" }
-bevy = "0.14.0-rc.3"
+bevy_quinnet = "0.9"
+bevy = "0.14.0"
 serde = { version = "1.0.203", features = ["derive"] }
 
 [profile.dev.package."*"]

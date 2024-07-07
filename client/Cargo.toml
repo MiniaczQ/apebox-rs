@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common", version = "0.1.0" }
-bevy_quinnet = { git = "https://github.com/Henauxg/bevy_quinnet", branch = "bevy-0.14" }
-bevy = { version = "0.14.0-rc.3", features = ["bevy_dev_tools"] }
-bevy_egui = { git = "https://github.com/MiniaczQ/bevy_egui", branch = "bevy-0.14-rc3" }
-egui = "0.27"
+bevy_quinnet = "0.9"
+bevy = { version = "0.14.0", features = ["bevy_dev_tools"] }
+bevy_egui = "0.28"
+egui = "0.28"
 rand = "0.8.5"
 crossbeam-channel = "0.5.13"
 async-channel = "2.3.1"

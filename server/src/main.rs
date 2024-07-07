@@ -19,10 +19,6 @@ use users::Users;
 
 fn main() {
     let mut app = App::new();
-    app.init_state::<ServerState>();
-    app.add_sub_state::<RoomState>();
-    app.add_sub_state::<GameState>();
-    app.add_sub_state::<VoteState>();
     app.add_plugins((
         MinimalPlugins,
         LogPlugin::default(),
@@ -31,6 +27,10 @@ fn main() {
         IdentityTransitionsPlugin::<GameState>::default(),
         IdentityTransitionsPlugin::<VoteState>::default(),
     ));
+    app.init_state::<ServerState>();
+    app.add_sub_state::<RoomState>();
+    app.add_sub_state::<GameState>();
+    app.add_sub_state::<VoteState>();
     app.init_resource::<Users>();
     app.configure_sets(
         Update,
