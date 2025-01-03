@@ -1,8 +1,9 @@
-# T-Shirt Knock-Off
+Apebox (rs) is a whimsical recreation of a game I partially developed during college.
+The original game was also a recreation of a game called Tee K.O.
 
-Open source "Tee K.O."-like game.
+The project is on hold until I feel whimsical again.
 
-# Roadmap
+# (Used to be) roadmap
 
 - [x] MVP
 - [ ] Screen transitions, especially vote results
